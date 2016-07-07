@@ -1,0 +1,214 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+import sys
+import stat
+import os
+import fnmatch
+import json
+import subprocess
+import shutil
+
+if len(sys.argv) != 2:
+	print('Supply a config.json file')
+	sys.exit(1)
+
+with open(sys.argv[1]) as fp:
+	settings = json.load(fp)
+
+# Import dictionary contents as local vars.
+for k, v in settings.items():
+	exec(u"%s = '%s'" % (k, v))
+
+# Physical name of the app
+APP_FILE = APP_NAME + u'.app'
+# Set up the general structure of the app
+CONTENTS_DIR = os.path.join(APP_FILE, u'Contents/MacOS')
+# Create APP_NAME/Contents/Resources
+RESOURCE_DIR = os.path.join(APP_FILE, u'Contents/Resources')
+# Execution script in app
+APP_SCRIPT = os.path.join(CONTENTS_DIR, APP_NAME)
+
+# # Check if app already exists and ask user what to do if so.
+# if os.path.exists(APP_FILE):
+# 	resp = raw_input("App already exists, do you want to continue? ([y]/n): ")
+# 	while not resp in ['y','n','']:
+# 		resp = raw_input("App already exists, do you want to continue? ([y]/n): ")
+# 	if resp == 'n':
+# 		print("Exiting...")
+# 		sys.exit(0)
+# 	else:
+# 		print("Removing previous app")
+# 		shutil.rmtree(APP_FILE)
+
+# try:
+# 	os.makedirs(CONTENTS_DIR)
+# except OSError as e:
+# 	print('Could not create app structure: {}'.format(e))
+# 	sys.exit(1)
+
+# with open(APP_SCRIPT, 'w') as fp:
+# 	# Write the contents
+# 	try:
+# 		fp.write("#!/usr/bin/env bash\n"
+# 				 "script_dir=$(dirname \"$(dirname \"$0\")\")\n"
+# 				 "$script_dir/Resources/bin/python "
+# 				 "$script_dir/Resources/bin/{}".format(ENTRY_SCRIPT))
+# 	except IOError as e:
+# 		print("Could not create Contents/OpenSesame script")
+# 		sys.exit(1)
+
+# # Set execution flags
+# st = os.stat(APP_SCRIPT)
+# os.chmod(APP_SCRIPT, st.st_mode | stat.S_IEXEC)
+
+# print("Copying Anaconda environment (this may take a while)")
+# shutil.copytree(CONDA_ENV_PATH, RESOURCE_DIR, symlinks=True)
+
+# # Copy SDL files into Resources\lib
+# print("Copying SDL library from {} to {}".format(SDL_FOLDER, 
+# 	os.path.join(RESOURCE_DIR, 'lib')))
+
+SDL_files = [
+	'libSDL-1.2.0.dylib',
+	'libSDL_image-1.2.0.dylib',
+	'libSDL_mixer-1.2.0.dylib',
+	'libSDL_ttf-2.0.0.dylib'
+]
+# try:
+# 	for SDL_lib in SDL_files:
+# 		shutil.copy2(
+# 			os.path.join(SDL_FOLDER, SDL_lib),    
+# 			os.path.join(RESOURCE_DIR, 'lib', SDL_lib),
+# 		)
+# except IOError as e:
+# 	print("Could not copy SDL libraries: e".format(e))
+
+# Correct the internal links of pygame to SDL
+print("Correcting pygame links to SDL")
+pygame_path = os.path.join(RESOURCE_DIR,'lib','python2.7','site-packages',
+	'pygame')
+
+# Get contents of pygame folder
+pg_files = os.listdir(pygame_path)
+# Filter .so files
+so_files = fnmatch.filter(pg_files, '*.so')
+
+# Use XCode's install_name_tool to change the references.
+for binary in so_files:
+	for SDL_lib in SDL_files:
+		resp = subprocess.call(['install_name_tool','-change',
+			os.path.join(SDL_FOLDER, SDL_lib),
+			os.path.join('@executable_path/../lib/', SDL_lib),
+			os.path.join(pygame_path, binary)
+		])
+		if resp:
+			print(resp)
+
+settings['ICON_FILE'] = os.path.split(ICON_PATH)[1]
+
+info_plist = """
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>English</string>
+	<key>CFBundleDisplayName</key>
+	<string>OpenSesame</string>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>osexp</string>
+			</array>
+			<key>CFBundleTypeIconFile</key>
+			<string>opensesame.icns</string>
+			<key>CFBundleTypeName</key>
+			<string>OpenSesame File</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+		</dict>
+	</array>
+	<key>CFBundleExecutable</key>
+	<string>OpenSesame</string>
+	<key>CFBundleIconFile</key>
+	<string>opensesame.icns</string>
+	<key>CFBundleIdentifier</key>
+	<string>nl.cogsci.osdoc</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>OpenSesame</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>%(version)s</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>CFBundleVersion</key>
+	<string>3.1.0</string>
+	<key>LSHasLocalizedDisplayName</key>
+	<false/>
+	<key>NSAppleScriptEnabled</key>
+	<false/>
+	<key>NSHumanReadableCopyright</key>
+	<string>Sebastiaan Mathot (2010-2016)</string>
+	<key>NSMainNibFile</key>
+	<string>MainMenu</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>PyMainFileNames</key>
+	<array>
+		<string>__boot__</string>
+	</array>
+	<key>PyOptions</key>
+	<dict>
+		<key>alias</key>
+		<false/>
+		<key>argv_emulation</key>
+		<true/>
+		<key>emulate_shell_environment</key>
+		<false/>
+		<key>no_chdir</key>
+		<false/>
+		<key>prefer_ppc</key>
+		<false/>
+		<key>site_packages</key>
+		<false/>
+		<key>use_faulthandler</key>
+		<false/>
+		<key>use_pythonpath</key>
+		<false/>
+		<key>verbose</key>
+		<false/>
+	</dict>
+	<key>PyResourcePackages</key>
+	<array>
+	</array>
+	<key>PyRuntimeLocations</key>
+	<array>
+		<string>@executable_path/../Resources/lib/libpython2.7.dylib</string>
+	</array>
+	<key>PythonInfoDict</key>
+	<dict>
+		<key>PythonExecutable</key>
+		<string>@executable_path</string>
+		<key>PythonLongVersion</key>
+		<string>2.7.12 |Continuum Analytics, Inc.| (default, Jul  2 2016, 17:43:17) 
+[GCC 4.2.1 (Based on Apple Inc. build 5658) (LLVM build 2336.11.00)]</string>
+		<key>PythonShortVersion</key>
+		<string>2.7</string>
+	</dict>
+</dict>
+</plist>
+""" % settings
+
+
+
+
+
+
+
+
+
