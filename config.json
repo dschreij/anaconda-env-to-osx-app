@@ -1,8 +1,12 @@
 {
 	"APP_NAME": "OpenSesame",
+	"VERSION": "3.1.0",
+	"IDENTIEFIER": "nl.cogsci.osdoc",
+	"APP_EXT": "osexp",
 	"AUTHOR": "Sebastiaan Mathot (2010-2016)",
 	"CONDA_ENV_PATH": "/Users/daniel/anaconda/envs/OpenSesame",
 	"ICON_PATH": "opensesame.icns",
 	"ENTRY_SCRIPT": "opensesame",
-	"SDL_FOLDER": "/usr/local/lib"
+	"SDL_FOLDER": "/usr/local/lib",
+	"OUTPUT_FOLDER": "~/EXPERIMENTAL/"
 }

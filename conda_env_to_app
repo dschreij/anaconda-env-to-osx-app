@@ -19,54 +19,63 @@ with open(sys.argv[1]) as fp:
 for k, v in settings.items():
 	exec(u"%s = '%s'" % (k, v))
 
-# Physical name of the app
-APP_FILE = APP_NAME + u'.app'
+# Account for relative path to home folder
+if OUTPUT_FOLDER[0] == '~':
+	OUTPUT_FOLDER = os.path.expanduser(OUTPUT_FOLDER)
+
+# Physical location of the app
+APP_FILE = os.path.join(OUTPUT_FOLDER, APP_NAME + u'.app')
 # Set up the general structure of the app
-CONTENTS_DIR = os.path.join(APP_FILE, u'Contents/MacOS')
+MACOS_DIR = os.path.join(APP_FILE, u'Contents/MacOS')
 # Create APP_NAME/Contents/Resources
 RESOURCE_DIR = os.path.join(APP_FILE, u'Contents/Resources')
 # Execution script in app
-APP_SCRIPT = os.path.join(CONTENTS_DIR, APP_NAME)
+APP_SCRIPT = os.path.join(MACOS_DIR, APP_NAME)
 
-# # Check if app already exists and ask user what to do if so.
-# if os.path.exists(APP_FILE):
-# 	resp = raw_input("App already exists, do you want to continue? ([y]/n): ")
-# 	while not resp in ['y','n','']:
-# 		resp = raw_input("App already exists, do you want to continue? ([y]/n): ")
-# 	if resp == 'n':
-# 		print("Exiting...")
-# 		sys.exit(0)
-# 	else:
-# 		print("Removing previous app")
-# 		shutil.rmtree(APP_FILE)
+# Check if app already exists and ask user what to do if so.
+if os.path.exists(APP_FILE):
+	resp = raw_input("App already exists, do you want to continue? ([y]/n): ")
+	while not resp in ['y','n','']:
+		resp = raw_input("App already exists, do you want to continue? ([y]/n): ")
+	if resp == 'n':
+		print("Exiting...")
+		sys.exit(0)
+	else:
+		print("Removing previous app")
+		shutil.rmtree(APP_FILE)
 
-# try:
-# 	os.makedirs(CONTENTS_DIR)
-# except OSError as e:
-# 	print('Could not create app structure: {}'.format(e))
-# 	sys.exit(1)
+print("Creating app structure")
+try:
+	os.makedirs(MACOS_DIR)
+except OSError as e:
+	print('Could not create app structure: {}'.format(e))
+	sys.exit(1)
 
-# with open(APP_SCRIPT, 'w') as fp:
-# 	# Write the contents
-# 	try:
-# 		fp.write("#!/usr/bin/env bash\n"
-# 				 "script_dir=$(dirname \"$(dirname \"$0\")\")\n"
-# 				 "$script_dir/Resources/bin/python "
-# 				 "$script_dir/Resources/bin/{}".format(ENTRY_SCRIPT))
-# 	except IOError as e:
-# 		print("Could not create Contents/OpenSesame script")
-# 		sys.exit(1)
+print("Creating app entry script")
+with open(APP_SCRIPT, 'w') as fp:
+	# Write the contents
+	try:
+		fp.write("#!/usr/bin/env bash\n"
+				 "script_dir=$(dirname \"$(dirname \"$0\")\")\n"
+				 "$script_dir/Resources/bin/python "
+				 "$script_dir/Resources/bin/{}".format(ENTRY_SCRIPT))
+	except IOError as e:
+		print("Could not create Contents/OpenSesame script")
+		sys.exit(1)
 
-# # Set execution flags
-# st = os.stat(APP_SCRIPT)
-# os.chmod(APP_SCRIPT, st.st_mode | stat.S_IEXEC)
+# Set execution flags
+st = os.stat(APP_SCRIPT)
+os.chmod(APP_SCRIPT, st.st_mode | stat.S_IEXEC)
 
-# print("Copying Anaconda environment (this may take a while)")
-# shutil.copytree(CONDA_ENV_PATH, RESOURCE_DIR, symlinks=True)
+print("Copying Anaconda environment (this may take a while)")
+try:
+	shutil.copytree(CONDA_ENV_PATH, RESOURCE_DIR, symlinks=True)
+except OSError as e:
+	print("Error copying Anaconda environment: {}".format(e))
 
-# # Copy SDL files into Resources\lib
-# print("Copying SDL library from {} to {}".format(SDL_FOLDER, 
-# 	os.path.join(RESOURCE_DIR, 'lib')))
+# Copy SDL files into Resources\lib
+print("Copying SDL library from {} to {}".format(SDL_FOLDER, 
+	os.path.join(RESOURCE_DIR, 'lib')))
 
 SDL_files = [
 	'libSDL-1.2.0.dylib',
@@ -74,14 +83,15 @@ SDL_files = [
 	'libSDL_mixer-1.2.0.dylib',
 	'libSDL_ttf-2.0.0.dylib'
 ]
-# try:
-# 	for SDL_lib in SDL_files:
-# 		shutil.copy2(
-# 			os.path.join(SDL_FOLDER, SDL_lib),    
-# 			os.path.join(RESOURCE_DIR, 'lib', SDL_lib),
-# 		)
-# except IOError as e:
-# 	print("Could not copy SDL libraries: e".format(e))
+
+try:
+	for SDL_lib in SDL_files:
+		shutil.copy2(
+			os.path.join(SDL_FOLDER, SDL_lib),    
+			os.path.join(RESOURCE_DIR, 'lib', SDL_lib),
+		)
+except OSError as e:
+	print("Could not copy SDL libraries: e".format(e))
 
 # Correct the internal links of pygame to SDL
 print("Correcting pygame links to SDL")
@@ -104,8 +114,16 @@ for binary in so_files:
 		if resp:
 			print(resp)
 
+print("Copying icon file")
 settings['ICON_FILE'] = os.path.split(ICON_PATH)[1]
 
+# Copy icon to Resources folder.
+try:
+	shutil.copy(ICON_PATH, os.path.join(RESOURCE_DIR, settings['ICON_FILE']))
+except OSError as e:
+	print("Error copying icon file from {}: {}".format(ICON_PATH, e))
+
+print("Creating Info.plist")
 info_plist = """
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -114,78 +132,48 @@ info_plist = """
 	<key>CFBundleDevelopmentRegion</key>
 	<string>English</string>
 	<key>CFBundleDisplayName</key>
-	<string>OpenSesame</string>
+	<string>{0[APP_NAME]}</string>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
 			<key>CFBundleTypeExtensions</key>
 			<array>
-				<string>osexp</string>
+				<string>{0[APP_EXT]}</string>
 			</array>
 			<key>CFBundleTypeIconFile</key>
-			<string>opensesame.icns</string>
+			<string>{0[ICON_FILE]}</string>
 			<key>CFBundleTypeName</key>
-			<string>OpenSesame File</string>
+			<string>{0[APP_NAME]} File</string>
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 		</dict>
 	</array>
 	<key>CFBundleExecutable</key>
-	<string>OpenSesame</string>
+	<string>{0[APP_NAME]}</string>
 	<key>CFBundleIconFile</key>
-	<string>opensesame.icns</string>
+	<string>{0[ICON_FILE]}</string>
 	<key>CFBundleIdentifier</key>
-	<string>nl.cogsci.osdoc</string>
+	<string>{0[IDENTIEFIER]}</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>OpenSesame</string>
+	<string>{0[APP_NAME]}</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>%(version)s</string>
+	<string>{0[VERSION]}</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
 	<key>CFBundleVersion</key>
-	<string>3.1.0</string>
+	<string>{0[VERSION]}</string>
 	<key>LSHasLocalizedDisplayName</key>
 	<false/>
 	<key>NSAppleScriptEnabled</key>
 	<false/>
 	<key>NSHumanReadableCopyright</key>
-	<string>Sebastiaan Mathot (2010-2016)</string>
-	<key>NSMainNibFile</key>
-	<string>MainMenu</string>
+	<string>{0[AUTHOR]}</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
-	<key>PyMainFileNames</key>
-	<array>
-		<string>__boot__</string>
-	</array>
-	<key>PyOptions</key>
-	<dict>
-		<key>alias</key>
-		<false/>
-		<key>argv_emulation</key>
-		<true/>
-		<key>emulate_shell_environment</key>
-		<false/>
-		<key>no_chdir</key>
-		<false/>
-		<key>prefer_ppc</key>
-		<false/>
-		<key>site_packages</key>
-		<false/>
-		<key>use_faulthandler</key>
-		<false/>
-		<key>use_pythonpath</key>
-		<false/>
-		<key>verbose</key>
-		<false/>
-	</dict>
-	<key>PyResourcePackages</key>
-	<array>
-	</array>
 	<key>PyRuntimeLocations</key>
 	<array>
 		<string>@executable_path/../Resources/lib/libpython2.7.dylib</string>
@@ -202,7 +190,16 @@ info_plist = """
 	</dict>
 </dict>
 </plist>
-""" % settings
+""".format(settings)
+
+try:
+	info_plist_path = os.path.join(APP_FILE, 'Contents','Info.plist')
+	with open(info_plist_path, 'w') as fp:
+		fp.write(info_plist)
+except IOError as e:
+	print("Could not create info.plist file")
+
+
 
 
 
