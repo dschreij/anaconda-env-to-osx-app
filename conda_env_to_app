@@ -1,12 +1,18 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+from __future__ import unicode_literals
+
 import sys
 import stat
 import os
-import fnmatch
 import json
-import subprocess
 import shutil
+import biplist
+import osxrelocator
+import time
+from datetime import date
+
+start_t = time.time()
 
 if len(sys.argv) != 2:
 	print('Supply a config.json file')
@@ -17,7 +23,11 @@ with open(sys.argv[1]) as fp:
 
 # Import dictionary contents as local vars.
 for k, v in settings.items():
-	exec(u"%s = '%s'" % (k, v))
+	try:
+		exec(u"%s = %s" % (k, v))
+	except:
+		exec(u"%s = '%s'" % (k, v))
+
 
 # Account for relative path to home folder
 if OUTPUT_FOLDER[0] == '~':
@@ -34,9 +44,9 @@ APP_SCRIPT = os.path.join(MACOS_DIR, APP_NAME)
 
 # Check if app already exists and ask user what to do if so.
 if os.path.exists(APP_FILE):
-	resp = raw_input("App already exists, do you want to continue? ([y]/n): ")
+	resp = input("App already exists, do you want to continue? ([y]/n): ")
 	while not resp in ['y','n','']:
-		resp = raw_input("App already exists, do you want to continue? ([y]/n): ")
+		resp = input("App already exists, do you want to continue? ([y]/n): ")
 	if resp == 'n':
 		print("Exiting...")
 		sys.exit(0)
@@ -58,7 +68,7 @@ with open(APP_SCRIPT, 'w') as fp:
 		fp.write("#!/usr/bin/env bash\n"
 				 "script_dir=$(dirname \"$(dirname \"$0\")\")\n"
 				 "$script_dir/Resources/bin/python "
-				 "$script_dir/Resources/bin/{}".format(ENTRY_SCRIPT))
+				 "$script_dir/Resources/bin/{} $@".format(ENTRY_SCRIPT))
 	except IOError as e:
 		print("Could not create Contents/OpenSesame script")
 		sys.exit(1)
@@ -69,138 +79,135 @@ os.chmod(APP_SCRIPT, st.st_mode | stat.S_IEXEC)
 
 print("Copying Anaconda environment (this may take a while)")
 try:
-	shutil.copytree(CONDA_ENV_PATH, RESOURCE_DIR, symlinks=True)
+	shutil.copytree(CONDA_ENV_PATH, RESOURCE_DIR, True)
 except OSError as e:
 	print("Error copying Anaconda environment: {}".format(e))
 
-# Copy SDL files into Resources\lib
-print("Copying SDL library from {} to {}".format(SDL_FOLDER, 
+print("Copying icon file")
+ICON_FILE = os.path.split(ICON_PATH)[1]
+
+# Copy icon to Resources folder.
+try:
+	shutil.copy(ICON_PATH, os.path.join(RESOURCE_DIR, ICON_FILE))
+except OSError as e:
+	print("Error copying icon file from {}: {}".format(ICON_PATH, e))
+
+print("Creating Info.plist")
+info_plist_data = {
+	'CFBundleDevelopmentRegion': 'en',
+	'CFBundleDocumentTypes': [{
+		'CFBundleTypeExtensions': [APP_EXT],
+		'CFBundleTypeIconFile': ICON_FILE,
+		'LSItemContentTypes': ['public.item']}],
+	 'CFBundleExecutable': APP_NAME,
+	 'CFBundleIconFile': ICON_FILE,
+	 'CFBundleIdentifier': IDENTIFIER,
+	 'CFBundleInfoDictionaryVersion': '6.0',
+	 'CFBundleName': APP_NAME,
+	 'CFBundlePackageType': 'APPL',
+	 'CFBundleShortVersionString': VERSION,
+	 'CFBundleSignature': '????',
+	 'CFBundleTypeRole': CFBUNDLETYPEROLE,
+	 'CFBundleVersion': VERSION,
+	 'LSMinimumSystemVersion': '10.7.0',
+	 'LSUIElement': False,
+	 'NSAppTransportSecurity': {'NSAllowsArbitraryLoads': True},
+	 'NSHumanReadableCopyright': u'\xa9 {} {}'.format(date.today().year, AUTHOR),
+	 'NSMainNibFile': 'MainMenu',
+	 'NSPrincipalClass': 'NSApplication'
+}
+
+biplist.writePlist(info_plist_data, os.path.join(APP_FILE, 'Contents',
+ 	'Info.plist'))
+
+# -------------------- OpenSesame specific operations --------------------------
+
+# Copy bin/opensesame to bin/opensesame.py to enable multiprocessing
+shutil.copy(
+	os.path.join(RESOURCE_DIR, 'bin', ENTRY_SCRIPT),
+	os.path.join(RESOURCE_DIR, 'bin', ENTRY_SCRIPT + '.py')
+)
+
+# # Copy newer (Homebrew) libpng to Resources folder, as the Anaconda one is too old
+# print("Copying libpng16.16.dylib")
+# try:
+# 	shutil.copyfile('/usr/local/opt/libpng/lib/libpng16.16.dylib',
+# 		os.path.join(RESOURCE_DIR, 'lib', 'libpng16.16.dylib'))
+# except OSError as e:
+# 	print("Error copying libpng: {}".format(e))
+
+# Copy SDL files into Resources/lib
+print("Copying SDL library from {} to {}".format(LOCAL_LIB_FOLDER,
 	os.path.join(RESOURCE_DIR, 'lib')))
 
 SDL_files = [
 	'libSDL-1.2.0.dylib',
 	'libSDL_image-1.2.0.dylib',
 	'libSDL_mixer-1.2.0.dylib',
-	'libSDL_ttf-2.0.0.dylib'
+	'libSDL_ttf-2.0.0.dylib',
+	'libportmidi.dylib',
+	'libportaudio.2.dylib',
 ]
 
 try:
 	for SDL_lib in SDL_files:
 		shutil.copy2(
-			os.path.join(SDL_FOLDER, SDL_lib),    
+			os.path.join(LOCAL_LIB_FOLDER, SDL_lib),
 			os.path.join(RESOURCE_DIR, 'lib', SDL_lib),
 		)
+		os.chmod(os.path.join(RESOURCE_DIR, 'lib', SDL_lib), 0o755)
 except OSError as e:
 	print("Could not copy SDL libraries: e".format(e))
 
+print("========== Correcting internal references of SDL files ==========")
+
+relocator = osxrelocator.OSXRelocator(
+	RESOURCE_DIR + '/lib', '/usr/local/lib',
+	'@rpath/', False)
+relocator.relocate()
+
+relocator = osxrelocator.OSXRelocator(
+	RESOURCE_DIR + '/lib',
+	'/usr/local/opt/sdl_image/lib/',
+	'@rpath/', False)
+relocator.relocate()
+
+relocator = osxrelocator.OSXRelocator(
+	RESOURCE_DIR + '/lib',
+	'/usr/local/opt/sdl/lib/',
+	'@rpath/', False)
+relocator.relocate()
+
+
 # Correct the internal links of pygame to SDL
-print("Correcting pygame links to SDL")
+print("========== Correcting pygame links to SDL ==========")
 pygame_path = os.path.join(RESOURCE_DIR,'lib','python2.7','site-packages',
 	'pygame')
 
-# Get contents of pygame folder
-pg_files = os.listdir(pygame_path)
-# Filter .so files
-so_files = fnmatch.filter(pg_files, '*.so')
+relocator = osxrelocator.OSXRelocator(
+	pygame_path,
+	LOCAL_LIB_FOLDER,
+	'@rpath/',
+	False)
+relocator.relocate()
 
-# Use XCode's install_name_tool to change the references.
-for binary in so_files:
-	for SDL_lib in SDL_files:
-		resp = subprocess.call(['install_name_tool','-change',
-			os.path.join(SDL_FOLDER, SDL_lib),
-			os.path.join('@executable_path/../lib/', SDL_lib),
-			os.path.join(pygame_path, binary)
-		])
-		if resp:
-			print(resp)
+relocator = osxrelocator.OSXRelocator(
+	pygame_path,
+	'/usr/local/opt/sdl_image/lib/',
+	'@rpath/',
+	False)
+relocator.relocate()
 
-print("Copying icon file")
-settings['ICON_FILE'] = os.path.split(ICON_PATH)[1]
-
-# Copy icon to Resources folder.
-try:
-	shutil.copy(ICON_PATH, os.path.join(RESOURCE_DIR, settings['ICON_FILE']))
-except OSError as e:
-	print("Error copying icon file from {}: {}".format(ICON_PATH, e))
-
-print("Creating Info.plist")
-info_plist = """
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-	<key>CFBundleDevelopmentRegion</key>
-	<string>English</string>
-	<key>CFBundleDisplayName</key>
-	<string>{0[APP_NAME]}</string>
-	<key>CFBundleDocumentTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleTypeExtensions</key>
-			<array>
-				<string>{0[APP_EXT]}</string>
-			</array>
-			<key>CFBundleTypeIconFile</key>
-			<string>{0[ICON_FILE]}</string>
-			<key>CFBundleTypeName</key>
-			<string>{0[APP_NAME]} File</string>
-			<key>CFBundleTypeRole</key>
-			<string>Editor</string>
-		</dict>
-	</array>
-	<key>CFBundleExecutable</key>
-	<string>{0[APP_NAME]}</string>
-	<key>CFBundleIconFile</key>
-	<string>{0[ICON_FILE]}</string>
-	<key>CFBundleIdentifier</key>
-	<string>{0[IDENTIEFIER]}</string>
-	<key>CFBundleInfoDictionaryVersion</key>
-	<string>6.0</string>
-	<key>CFBundleName</key>
-	<string>{0[APP_NAME]}</string>
-	<key>CFBundlePackageType</key>
-	<string>APPL</string>
-	<key>CFBundleShortVersionString</key>
-	<string>{0[VERSION]}</string>
-	<key>CFBundleSignature</key>
-	<string>????</string>
-	<key>CFBundleVersion</key>
-	<string>{0[VERSION]}</string>
-	<key>LSHasLocalizedDisplayName</key>
-	<false/>
-	<key>NSAppleScriptEnabled</key>
-	<false/>
-	<key>NSHumanReadableCopyright</key>
-	<string>{0[AUTHOR]}</string>
-	<key>NSPrincipalClass</key>
-	<string>NSApplication</string>
-	<key>PyRuntimeLocations</key>
-	<array>
-		<string>@executable_path/../Resources/lib/libpython2.7.dylib</string>
-	</array>
-	<key>PythonInfoDict</key>
-	<dict>
-		<key>PythonExecutable</key>
-		<string>@executable_path</string>
-		<key>PythonLongVersion</key>
-		<string>2.7.12 |Continuum Analytics, Inc.| (default, Jul  2 2016, 17:43:17) 
-[GCC 4.2.1 (Based on Apple Inc. build 5658) (LLVM build 2336.11.00)]</string>
-		<key>PythonShortVersion</key>
-		<string>2.7</string>
-	</dict>
-</dict>
-</plist>
-""".format(settings)
-
-try:
-	info_plist_path = os.path.join(APP_FILE, 'Contents','Info.plist')
-	with open(info_plist_path, 'w') as fp:
-		fp.write(info_plist)
-except IOError as e:
-	print("Could not create info.plist file")
+relocator = osxrelocator.OSXRelocator(
+	pygame_path,
+	'/usr/local/opt/libpng/lib/',
+	'@rpath/',
+	False)
+relocator.relocate()
 
 
-
+print("======================= FINISHED in {} seconds =============================="
+	"".format(time.time()-start_t))
 
 
 
