@@ -90,7 +90,7 @@ def create_app():
 	correct_pygame_links()
 
 	print("============ APP CREATION FINISHED in {} seconds ===================="
-		"".format(time.time()-start_t))
+		"".format(int(time.time()-start_t)))
 
 def create_app_structure():
 	""" Create folder structure comprising a Mac app """
