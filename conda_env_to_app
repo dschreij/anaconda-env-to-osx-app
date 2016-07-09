@@ -5,29 +5,41 @@ from __future__ import unicode_literals
 import sys
 import stat
 import os
-import json
+import tokenize
 import shutil
 import biplist
 import osxrelocator
+import dmgbuild
 import time
+import subprocess
+import six
+import re
 from datetime import date
 
-start_t = time.time()
-
+# Check for settings file
 if len(sys.argv) != 2:
-	print('Supply a config.json file')
+	print('Supply a settings.py file for app creation')
 	sys.exit(1)
 
-with open(sys.argv[1]) as fp:
-	settings = json.load(fp)
+CONFIG_FILE_PATH = sys.argv[1]
 
-# Import dictionary contents as local vars.
-for k, v in settings.items():
-	try:
-		exec(u"%s = %s" % (k, v))
-	except:
-		exec(u"%s = '%s'" % (k, v))
-
+# Read config file for app creation
+# On Python 2 we can just execfile() it, but Python 3 deprecated that
+try:
+	if sys.version_info[0] == 2:
+	    execfile(CONFIG_FILE_PATH)
+	else:
+		encoding = 'utf-8'
+		with open(CONFIG_FILE_PATH, 'rb') as fp:
+			try:
+				encoding = tokenize.detect_encoding(fp.readline)[0]
+			except SyntaxError:
+				pass
+		with open(CONFIG_FILE_PATH, 'r', encoding=encoding) as fp:
+			exec(compile(fp.read(), CONFIG_FILE_PATH, 'exec'))
+except IOError as e:
+	print("Could not read app config file: {}".format(e))
+	sys.exit(1)
 
 # Account for relative path to home folder
 if OUTPUT_FOLDER[0] == '~':
@@ -41,178 +53,293 @@ MACOS_DIR = os.path.join(APP_FILE, u'Contents/MacOS')
 RESOURCE_DIR = os.path.join(APP_FILE, u'Contents/Resources')
 # Execution script in app
 APP_SCRIPT = os.path.join(MACOS_DIR, APP_NAME)
+ICON_FILE = os.path.basename(ICON_PATH)
 
-# Check if app already exists and ask user what to do if so.
-if os.path.exists(APP_FILE):
-	resp = input("App already exists, do you want to continue? ([y]/n): ")
-	while not resp in ['y','n','']:
-		resp = input("App already exists, do you want to continue? ([y]/n): ")
-	if resp == 'n':
-		print("Exiting...")
-		sys.exit(0)
-	else:
-		print("Removing previous app")
-		shutil.rmtree(APP_FILE)
-
-print("Creating app structure")
+# map raw_input to input in Python 2
 try:
-	os.makedirs(MACOS_DIR)
-except OSError as e:
-	print('Could not create app structure: {}'.format(e))
-	sys.exit(1)
+    input = raw_input
+except NameError: #Python 3
+    pass
 
-print("Creating app entry script")
-with open(APP_SCRIPT, 'w') as fp:
-	# Write the contents
+def create_app():
+	""" Create an app bundle """
+
+	# Check if app already exists and ask user what to do if so.
+	if os.path.exists(APP_FILE):
+		resp = input("App already exists, do you want to overwrite it? ([y]/n): ")
+		while not resp in ['y','n','']:
+			resp = input("App already exists, do you want to overwrite it? ([y]/n): ")
+		if resp == 'n':
+			print("Skipping app creation")
+			return
+		else:
+			print("Removing previous app")
+			shutil.rmtree(APP_FILE)
+	
+	print("\n++++++++++++++++++++++++ Creating APP +++++++++++++++++++++++++++")
+	start_t = time.time()
+
+	create_app_structure()
+	copy_anaconda_env()
+	copy_icon()
+	create_plist()
+	# OpenSesame specific:
+	copy_opensesame_with_py_ext()
+	# copy_libpng()
+	copy_sdl_libraries()
+	correct_pygame_links()
+
+	print("============ APP CREATION FINISHED in {} seconds ===================="
+		"".format(time.time()-start_t))
+
+def create_app_structure():
+	""" Create folder structure comprising a Mac app """
+	print("Creating app structure")
 	try:
-		fp.write("#!/usr/bin/env bash\n"
-				 "script_dir=$(dirname \"$(dirname \"$0\")\")\n"
-				 "$script_dir/Resources/bin/python "
-				 "$script_dir/Resources/bin/{} $@".format(ENTRY_SCRIPT))
-	except IOError as e:
-		print("Could not create Contents/OpenSesame script")
+		os.makedirs(MACOS_DIR)
+	except OSError as e:
+		print('Could not create app structure: {}'.format(e))
 		sys.exit(1)
 
-# Set execution flags
-st = os.stat(APP_SCRIPT)
-os.chmod(APP_SCRIPT, st.st_mode | stat.S_IEXEC)
+	print("Creating app entry script")
+	with open(APP_SCRIPT, 'w') as fp:
+		# Write the contents
+		try:
+			fp.write("#!/usr/bin/env bash\n"
+					 "script_dir=$(dirname \"$(dirname \"$0\")\")\n"
+					 "$script_dir/Resources/bin/python "
+					 "$script_dir/Resources/bin/{} $@".format(ENTRY_SCRIPT))
+		except IOError as e:
+			print("Could not create Contents/OpenSesame script")
+			sys.exit(1)
 
-print("Copying Anaconda environment (this may take a while)")
-try:
-	shutil.copytree(CONDA_ENV_PATH, RESOURCE_DIR, True)
-except OSError as e:
-	print("Error copying Anaconda environment: {}".format(e))
+	# Set execution flags
+	st = os.stat(APP_SCRIPT)
+	os.chmod(APP_SCRIPT, st.st_mode | stat.S_IEXEC)
 
-print("Copying icon file")
-ICON_FILE = os.path.split(ICON_PATH)[1]
+def copy_anaconda_env():
+	""" Copy anaconda environment """
+	print("Copying Anaconda environment (this may take a while)")
+	try:
+		shutil.copytree(CONDA_ENV_PATH, RESOURCE_DIR, True)
+	except OSError as e:
+		print("Error copying Anaconda environment: {}".format(e))
 
-# Copy icon to Resources folder.
-try:
-	shutil.copy(ICON_PATH, os.path.join(RESOURCE_DIR, ICON_FILE))
-except OSError as e:
-	print("Error copying icon file from {}: {}".format(ICON_PATH, e))
+def copy_icon():
+	""" Copy icon to Resources folder """
+	print("Copying icon file")
+	try:
+		shutil.copy(ICON_PATH, os.path.join(RESOURCE_DIR, ICON_FILE))
+	except OSError as e:
+		print("Error copying icon file from {}: {}".format(ICON_PATH, e))
 
-print("Creating Info.plist")
-info_plist_data = {
-	'CFBundleDevelopmentRegion': 'en',
-	'CFBundleDocumentTypes': [{
-		'CFBundleTypeExtensions': [APP_EXT],
-		'CFBundleTypeIconFile': ICON_FILE,
-		'LSItemContentTypes': ['public.item']}],
-	 'CFBundleExecutable': APP_NAME,
-	 'CFBundleIconFile': ICON_FILE,
-	 'CFBundleIdentifier': IDENTIFIER,
-	 'CFBundleInfoDictionaryVersion': '6.0',
-	 'CFBundleName': APP_NAME,
-	 'CFBundlePackageType': 'APPL',
-	 'CFBundleShortVersionString': VERSION,
-	 'CFBundleSignature': '????',
-	 'CFBundleTypeRole': CFBUNDLETYPEROLE,
-	 'CFBundleVersion': VERSION,
-	 'LSMinimumSystemVersion': '10.7.0',
-	 'LSUIElement': False,
-	 'NSAppTransportSecurity': {'NSAllowsArbitraryLoads': True},
-	 'NSHumanReadableCopyright': u'\xa9 {} {}'.format(date.today().year, AUTHOR),
-	 'NSMainNibFile': 'MainMenu',
-	 'NSPrincipalClass': 'NSApplication'
-}
+def create_plist():
+	print("Creating Info.plist")
+	info_plist_data = {
+		'CFBundleDevelopmentRegion': 'en',
+		'CFBundleDocumentTypes': [{
+			'CFBundleTypeExtensions': [APP_EXT],
+			'CFBundleTypeIconFile': ICON_FILE,
+			'LSItemContentTypes': ['public.item']}],
+		 'CFBundleExecutable': APP_NAME,
+		 'CFBundleIconFile': ICON_FILE,
+		 'CFBundleIdentifier': IDENTIFIER,
+		 'CFBundleInfoDictionaryVersion': '6.0',
+		 'CFBundleName': APP_NAME,
+		 'CFBundlePackageType': 'APPL',
+		 'CFBundleShortVersionString': VERSION,
+		 'CFBundleSignature': '????',
+		 'CFBundleTypeRole': CFBUNDLETYPEROLE,
+		 'CFBundleVersion': VERSION,
+		 'LSMinimumSystemVersion': '10.7.0',
+		 'LSUIElement': False,
+		 'NSAppTransportSecurity': {'NSAllowsArbitraryLoads': True},
+		 'NSHumanReadableCopyright': u'\xa9 {} {}'.format(date.today().year, AUTHOR),
+		 'NSMainNibFile': 'MainMenu',
+		 'NSPrincipalClass': 'NSApplication'
+	}
 
-biplist.writePlist(info_plist_data, os.path.join(APP_FILE, 'Contents',
- 	'Info.plist'))
+	biplist.writePlist(info_plist_data, os.path.join(APP_FILE, 'Contents',
+	 	'Info.plist'))
 
 # -------------------- OpenSesame specific operations --------------------------
 
-# Copy bin/opensesame to bin/opensesame.py to enable multiprocessing
-shutil.copy(
-	os.path.join(RESOURCE_DIR, 'bin', ENTRY_SCRIPT),
-	os.path.join(RESOURCE_DIR, 'bin', ENTRY_SCRIPT + '.py')
-)
+def copy_opensesame_with_py_ext():
+	""" Copy bin/opensesame to bin/opensesame.py to enable multiprocessing """
+	shutil.copy(
+		os.path.join(RESOURCE_DIR, 'bin', ENTRY_SCRIPT),
+		os.path.join(RESOURCE_DIR, 'bin', ENTRY_SCRIPT + '.py')
+	)
 
-# # Copy newer (Homebrew) libpng to Resources folder, as the Anaconda one is too old
-# print("Copying libpng16.16.dylib")
-# try:
-# 	shutil.copyfile('/usr/local/opt/libpng/lib/libpng16.16.dylib',
-# 		os.path.join(RESOURCE_DIR, 'lib', 'libpng16.16.dylib'))
-# except OSError as e:
-# 	print("Error copying libpng: {}".format(e))
+def copy_libpng():
+	""" Copy newer (Homebrew) libpng to Resources folder, 
+	as the Anaconda one is too old """
+	print("Copying libpng16.16.dylib")
+	try:
+		shutil.copyfile('/usr/local/opt/libpng/lib/libpng16.16.dylib',
+			os.path.join(RESOURCE_DIR, 'lib', 'libpng16.16.dylib'))
+	except OSError as e:
+		print("Error copying libpng: {}".format(e))
 
-# Copy SDL files into Resources/lib
-print("Copying SDL library from {} to {}".format(LOCAL_LIB_FOLDER,
-	os.path.join(RESOURCE_DIR, 'lib')))
+def copy_sdl_libraries():
+	""" Copy SDL files into Resources/lib """
+	print("Copying SDL library from {} to {}".format(LOCAL_LIB_FOLDER,
+		os.path.join(RESOURCE_DIR, 'lib')))
 
-SDL_files = [
-	'libSDL-1.2.0.dylib',
-	'libSDL_image-1.2.0.dylib',
-	'libSDL_mixer-1.2.0.dylib',
-	'libSDL_ttf-2.0.0.dylib',
-	'libportmidi.dylib',
-	'libportaudio.2.dylib',
-]
+	SDL_files = [
+		'libSDL-1.2.0.dylib',
+		'libSDL_image-1.2.0.dylib',
+		'libSDL_mixer-1.2.0.dylib',
+		'libSDL_ttf-2.0.0.dylib',
+		'libportmidi.dylib',
+		'libportaudio.2.dylib',
+	]
 
-try:
-	for SDL_lib in SDL_files:
-		shutil.copy2(
-			os.path.join(LOCAL_LIB_FOLDER, SDL_lib),
-			os.path.join(RESOURCE_DIR, 'lib', SDL_lib),
-		)
-		os.chmod(os.path.join(RESOURCE_DIR, 'lib', SDL_lib), 0o755)
-except OSError as e:
-	print("Could not copy SDL libraries: e".format(e))
+	try:
+		for SDL_lib in SDL_files:
+			shutil.copy2(
+				os.path.join(LOCAL_LIB_FOLDER, SDL_lib),
+				os.path.join(RESOURCE_DIR, 'lib', SDL_lib),
+			)
+			os.chmod(os.path.join(RESOURCE_DIR, 'lib', SDL_lib), 0o755)
+	except OSError as e:
+		print("Could not copy SDL libraries: e".format(e))
 
-print("========== Correcting internal references of SDL files ==========")
+	print("========== Correcting internal references of SDL files ==========")
 
-relocator = osxrelocator.OSXRelocator(
-	RESOURCE_DIR + '/lib', '/usr/local/lib',
-	'@rpath/', False)
-relocator.relocate()
+	relocator = osxrelocator.OSXRelocator(
+		RESOURCE_DIR + '/lib', '/usr/local/lib',
+		'@rpath/', False)
+	relocator.relocate()
 
-relocator = osxrelocator.OSXRelocator(
-	RESOURCE_DIR + '/lib',
-	'/usr/local/opt/sdl_image/lib/',
-	'@rpath/', False)
-relocator.relocate()
+	relocator = osxrelocator.OSXRelocator(
+		RESOURCE_DIR + '/lib',
+		'/usr/local/opt/sdl_image/lib/',
+		'@rpath/', False)
+	relocator.relocate()
 
-relocator = osxrelocator.OSXRelocator(
-	RESOURCE_DIR + '/lib',
-	'/usr/local/opt/sdl/lib/',
-	'@rpath/', False)
-relocator.relocate()
+	relocator = osxrelocator.OSXRelocator(
+		RESOURCE_DIR + '/lib',
+		'/usr/local/opt/sdl/lib/',
+		'@rpath/', False)
+	relocator.relocate()
 
+def correct_pygame_links():
+	""" Correct the internal links of pygame to SDL """
+	print("========== Correcting pygame links to SDL ==========")
+	pygame_path = os.path.join(RESOURCE_DIR, 'lib',
+		'python{}.{}'.format(sys.version_info.major, sys.version_info.minor),
+		'site-packages','pygame')
 
-# Correct the internal links of pygame to SDL
-print("========== Correcting pygame links to SDL ==========")
-pygame_path = os.path.join(RESOURCE_DIR,'lib','python2.7','site-packages',
-	'pygame')
+	relocator = osxrelocator.OSXRelocator(
+		pygame_path,
+		LOCAL_LIB_FOLDER,
+		'@rpath/',
+		False)
+	relocator.relocate()
 
-relocator = osxrelocator.OSXRelocator(
-	pygame_path,
-	LOCAL_LIB_FOLDER,
-	'@rpath/',
-	False)
-relocator.relocate()
+	relocator = osxrelocator.OSXRelocator(
+		pygame_path,
+		'/usr/local/opt/sdl_image/lib/',
+		'@rpath/',
+		False)
+	relocator.relocate()
 
-relocator = osxrelocator.OSXRelocator(
-	pygame_path,
-	'/usr/local/opt/sdl_image/lib/',
-	'@rpath/',
-	False)
-relocator.relocate()
+	relocator = osxrelocator.OSXRelocator(
+		pygame_path,
+		'/usr/local/opt/libpng/lib/',
+		'@rpath/',
+		False)
+	relocator.relocate()
 
-relocator = osxrelocator.OSXRelocator(
-	pygame_path,
-	'/usr/local/opt/libpng/lib/',
-	'@rpath/',
-	False)
-relocator.relocate()
+def create_dmg():
+	""" Create a dmg of the app """
 
+	# Check if app to exists
+	if not os.path.isdir(APP_FILE):
+		print("Could not file app file at {}".format(APP_FILE))
+		sys.exit(1)
 
-print("======================= FINISHED in {} seconds =============================="
-	"".format(time.time()-start_t))
+	# Check if DMG already exists and ask user what to do if so.
+	global DMG_FILE
+	try:
+		DMG_FILE = os.path.join(OUTPUT_FOLDER, DMG_FILE)
+	except NameError as e:
+		print("Could not find DMG name. Using app name")
+		DMG_FILE = os.path.join(OUTPUT_FOLDER, APP_NAME + u'.dmg')
+	
+	if os.path.exists(DMG_FILE):
+		resp = input("DMG already exists, do you want to overwrite it? ([y]/n): ")
+		while not resp in ['y','n','']:
+			resp = input("DMG already exists, do you want to overwrite it? ([y]/n): ")
+		if resp == 'n':
+			print("Skipping DMG creation")
+			return
+		else:
+			print("Removing previous DMG")
+			os.remove(DMG_FILE)
 
+	print("\n+++++++++++++++++++++ Creating DMG from app +++++++++++++++++++++++")
 
+	# Get file size of APP
+	APP_SIZE = subprocess.check_output(['du','-sh', APP_FILE]).split()[0].decode('utf-8')
 
+	# Add a bit of extra to the disk image size
+	APP_SIZE = str(int(re.findall('\d+', APP_SIZE)[0]) + 50) + 'M'
 
+	print("Creating disk image of {}".format(APP_SIZE))
 
+	# Create a dmgbuild config file in same folder as 
+	dmgbuild_config_file = os.path.join(os.path.dirname(CONFIG_FILE_PATH),
+		'dmgbuild_settings.py')
 
+	dmg_config = {
+		'filename': DMG_FILE,
+		'volume_name': APP_NAME,
+		'format': DMG_FORMAT,
+		'size' : APP_SIZE,
+		'files' : [APP_FILE],
+		'symlinks' : { 'Applications': '/Applications' },
+		'badge_icon' : ICON_PATH,
+		'icon_locations' : DMG_ICON_LOCATIONS,
+		'icon_size' : DMG_ICON_SIZE,
+		'background' : DMG_BACKGROUND,
+		'window_rect' : DMG_WINDOW,
+	}
 
+	write_vars_to_file(dmgbuild_config_file, dmg_config)
+	print("Copying files to DMG and compressing it. Please wait.")
+	dmgbuild.build_dmg(DMG_FILE, APP_NAME, settings_file=dmgbuild_config_file)
 
+	# Clean up!
+	os.remove(dmgbuild_config_file)
+
+def write_vars_to_file(file_path, var_dict):
+	with open(file_path, 'w') as fp:
+		fp.write("# -*- coding: utf-8 -*-\n")
+		fp.write("from __future__ import unicode_literals\n\n")
+		
+		for var, value in var_dict.iteritems():
+			if isinstance(value, six.string_types):
+				fp.write('{} = "{}"\n'.format(var, value))
+			else:
+				fp.write('{} = {}\n'.format(var, value))
+
+if __name__ == "__main__":
+	create_app()
+
+	resp = input("Do you want to create a DMG from the app? ([y]/n): ")
+	while not resp in ['y','n','']:
+		resp = input("Do you want to create a DMG from the app? ([y]/n): ")
+	if resp == 'n':
+		print("Skipping dmg creation")
+	else:
+		create_dmg()
+
+	print("Finished!")
+
+####### TODO #######
+# Convert entry shell script to binary.
+# Integrate ffmpeg.osx in package somehow.
+# Retrieve OpenSesame version from opensesame source files
+# See what is necessary for code signing
