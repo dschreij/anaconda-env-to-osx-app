@@ -5,10 +5,10 @@ from __future__ import unicode_literals
 import sys
 import stat
 import os
+import glob
 import tokenize
 import shutil
 import biplist
-import osxrelocator
 import dmgbuild
 import time
 import subprocess
@@ -41,9 +41,29 @@ except IOError as e:
 	print("Could not read app config file: {}".format(e))
 	sys.exit(1)
 
-# Account for relative path to home folder
-if OUTPUT_FOLDER[0] == '~':
-	OUTPUT_FOLDER = os.path.expanduser(OUTPUT_FOLDER)
+# Check if obligatory variables are present in the configuration file.
+try:
+	APP_NAME
+	OUTPUT_FOLDER
+	VERSION
+	AUTHOR
+	CONDA_ENV_PATH
+	ENTRY_SCRIPT
+	CFBUNDLETYPEROLE
+	IDENTIFIER
+except NameError as e:
+	print("Missing obligatory configuration variable: {}".format(e))
+
+# Optional config entries
+try:
+	ICON_PATH = os.path.expanduser(ICON_PATH)
+	ICON_FILE = os.path.basename(ICON_PATH)
+except NameError:
+	ICON_FILE = None
+
+# Account for relative paths to home folder
+CONDA_ENV_PATH = os.path.expanduser(CONDA_ENV_PATH)
+OUTPUT_FOLDER = os.path.expanduser(OUTPUT_FOLDER)
 
 # Physical location of the app
 APP_FILE = os.path.join(OUTPUT_FOLDER, APP_NAME + u'.app')
@@ -53,9 +73,8 @@ MACOS_DIR = os.path.join(APP_FILE, u'Contents/MacOS')
 RESOURCE_DIR = os.path.join(APP_FILE, u'Contents/Resources')
 # Execution script in app
 APP_SCRIPT = os.path.join(MACOS_DIR, APP_NAME)
-ICON_FILE = os.path.basename(ICON_PATH)
 
-# map raw_input to input in Python 2
+# map raw_input to input in Python 2 (raw_input no longer exists in 3)
 try:
     input = raw_input
 except NameError: #Python 3
@@ -81,14 +100,16 @@ def create_app():
 
 	create_app_structure()
 	copy_anaconda_env()
-	copy_icon()
+	if ICON_FILE:
+		copy_icon()
 	create_plist()
-	# OpenSesame specific:
-	copy_opensesame_with_py_ext()
-	# copy_libpng()
-	copy_sdl_libraries()
-	correct_pygame_links()
 
+	# Do some package specific stuff, which is defined in the extra() function
+	# in settings.py (and was imported at the top of this module)
+	if "extra" in globals() and callable(extra):
+		print("Performing application specific actions.")
+		extra()
+	
 	print("============ APP CREATION FINISHED in {} seconds ===================="
 		"".format(int(time.time()-start_t)))
 
@@ -121,12 +142,41 @@ def copy_anaconda_env():
 	""" Copy anaconda environment """
 	print("Copying Anaconda environment (this may take a while)")
 	try:
-		shutil.copytree(CONDA_ENV_PATH, RESOURCE_DIR, True)
+		if "CONDA_FOLDERS" in globals():
+			# IF conda folders is specified, copy only those folders.
+			for item in CONDA_FOLDERS:
+				shutil.copytree(
+					os.path.join(CONDA_ENV_PATH, item), 
+					os.path.join(RESOURCE_DIR, item),
+					symlinks=True)
+		else:
+			# Copy everything
+			shutil.copytree(CONDA_ENV_PATH, RESOURCE_DIR, True)
 	except OSError as e:
 		print("Error copying Anaconda environment: {}".format(e))
 
+	# Delete unncecessary files (such as all Qt apps included with conda)
+	if "CONDA_EXCLUDE_FILES" in globals():
+		for excl_entry in CONDA_EXCLUDE_FILES:
+			full_path = os.path.join(RESOURCE_DIR, excl_entry)
+			# Expand wild cards and such
+			filelist = glob.glob(full_path)
+			for item in filelist:
+				try:
+					if os.path.isdir(item):
+						print("Removing folder: {}".format(item))
+						shutil.rmtree(item)
+					elif os.path.isfile(item):
+						print("Removing file: {}".format(item))
+						os.remove(item)
+					else:
+						print("File not found: {}".format(item))
+				except (IOError, OSError) as e:
+					print("WARNING: could not delete {}".format(item))
+
 def copy_icon():
 	""" Copy icon to Resources folder """
+	global ICON_PATH
 	print("Copying icon file")
 	try:
 		shutil.copy(ICON_PATH, os.path.join(RESOURCE_DIR, ICON_FILE))
@@ -135,122 +185,45 @@ def copy_icon():
 
 def create_plist():
 	print("Creating Info.plist")
+
+	global ICON_FILE
+	global VERSION
+
+	if 'LONG_VERSION' in globals():
+		global LONG_VERSION
+	else:
+		LONG_VERSION = VERSION
+
 	info_plist_data = {
 		'CFBundleDevelopmentRegion': 'en',
-		'CFBundleDocumentTypes': [{
-			'CFBundleTypeExtensions': [APP_EXT],
-			'CFBundleTypeIconFile': ICON_FILE,
-			'LSItemContentTypes': ['public.item']}],
-		 'CFBundleExecutable': APP_NAME,
-		 'CFBundleIconFile': ICON_FILE,
-		 'CFBundleIdentifier': IDENTIFIER,
-		 'CFBundleInfoDictionaryVersion': '6.0',
-		 'CFBundleName': APP_NAME,
-		 'CFBundlePackageType': 'APPL',
-		 'CFBundleShortVersionString': VERSION,
-		 'CFBundleSignature': '????',
-		 'CFBundleTypeRole': CFBUNDLETYPEROLE,
-		 'CFBundleVersion': VERSION,
-		 'LSMinimumSystemVersion': '10.7.0',
-		 'LSUIElement': False,
-		 'NSAppTransportSecurity': {'NSAllowsArbitraryLoads': True},
-		 'NSHumanReadableCopyright': u'\xa9 {} {}'.format(date.today().year, AUTHOR),
-		 'NSMainNibFile': 'MainMenu',
-		 'NSPrincipalClass': 'NSApplication'
+		'CFBundleExecutable': APP_NAME,
+		'CFBundleIdentifier': IDENTIFIER,
+		'CFBundleInfoDictionaryVersion': '6.0',
+		'CFBundleName': APP_NAME,
+		'CFBundleDisplayName': APP_NAME,
+		'CFBundlePackageType': 'APPL',
+		'CFBundleVersion': LONG_VERSION,
+		'CFBundleShortVersionString': VERSION,
+		'CFBundleSignature': '????',
+		'CFBundleTypeRole': CFBUNDLETYPEROLE,
+		'LSMinimumSystemVersion': '10.7.0',
+		'LSUIElement': False,
+		'NSAppTransportSecurity': {'NSAllowsArbitraryLoads': True},
+		'NSHumanReadableCopyright': u'\xa9 {} {}'.format(date.today().year, AUTHOR),
+		'NSMainNibFile': 'MainMenu',
+		'NSPrincipalClass': 'NSApplication'
 	}
+
+	if ICON_FILE:
+		info_plist_data['CFBundleIconFile'] = ICON_FILE
+
+	if 'APP_SUPPORTED_FILES' in globals():
+		global APP_SUPPORTED_FILES
+		info_plist_data['CFBundleDocumentTypes'] = APP_SUPPORTED_FILES
 
 	biplist.writePlist(info_plist_data, os.path.join(APP_FILE, 'Contents',
 	 	'Info.plist'))
 
-# -------------------- OpenSesame specific operations --------------------------
-
-def copy_opensesame_with_py_ext():
-	""" Copy bin/opensesame to bin/opensesame.py to enable multiprocessing """
-	shutil.copy(
-		os.path.join(RESOURCE_DIR, 'bin', ENTRY_SCRIPT),
-		os.path.join(RESOURCE_DIR, 'bin', ENTRY_SCRIPT + '.py')
-	)
-
-def copy_libpng():
-	""" Copy newer (Homebrew) libpng to Resources folder, 
-	as the Anaconda one is too old """
-	print("Copying libpng16.16.dylib")
-	try:
-		shutil.copyfile('/usr/local/opt/libpng/lib/libpng16.16.dylib',
-			os.path.join(RESOURCE_DIR, 'lib', 'libpng16.16.dylib'))
-	except OSError as e:
-		print("Error copying libpng: {}".format(e))
-
-def copy_sdl_libraries():
-	""" Copy SDL files into Resources/lib """
-	print("Copying SDL library from {} to {}".format(LOCAL_LIB_FOLDER,
-		os.path.join(RESOURCE_DIR, 'lib')))
-
-	SDL_files = [
-		'libSDL-1.2.0.dylib',
-		'libSDL_image-1.2.0.dylib',
-		'libSDL_mixer-1.2.0.dylib',
-		'libSDL_ttf-2.0.0.dylib',
-		'libportmidi.dylib',
-		'libportaudio.2.dylib',
-	]
-
-	try:
-		for SDL_lib in SDL_files:
-			shutil.copy2(
-				os.path.join(LOCAL_LIB_FOLDER, SDL_lib),
-				os.path.join(RESOURCE_DIR, 'lib', SDL_lib),
-			)
-			os.chmod(os.path.join(RESOURCE_DIR, 'lib', SDL_lib), 0o755)
-	except OSError as e:
-		print("Could not copy SDL libraries: e".format(e))
-
-	print("========== Correcting internal references of SDL files ==========")
-
-	relocator = osxrelocator.OSXRelocator(
-		RESOURCE_DIR + '/lib', '/usr/local/lib',
-		'@rpath/', False)
-	relocator.relocate()
-
-	relocator = osxrelocator.OSXRelocator(
-		RESOURCE_DIR + '/lib',
-		'/usr/local/opt/sdl_image/lib/',
-		'@rpath/', False)
-	relocator.relocate()
-
-	relocator = osxrelocator.OSXRelocator(
-		RESOURCE_DIR + '/lib',
-		'/usr/local/opt/sdl/lib/',
-		'@rpath/', False)
-	relocator.relocate()
-
-def correct_pygame_links():
-	""" Correct the internal links of pygame to SDL """
-	print("========== Correcting pygame links to SDL ==========")
-	pygame_path = os.path.join(RESOURCE_DIR, 'lib',
-		'python{}.{}'.format(sys.version_info.major, sys.version_info.minor),
-		'site-packages','pygame')
-
-	relocator = osxrelocator.OSXRelocator(
-		pygame_path,
-		LOCAL_LIB_FOLDER,
-		'@rpath/',
-		False)
-	relocator.relocate()
-
-	relocator = osxrelocator.OSXRelocator(
-		pygame_path,
-		'/usr/local/opt/sdl_image/lib/',
-		'@rpath/',
-		False)
-	relocator.relocate()
-
-	relocator = osxrelocator.OSXRelocator(
-		pygame_path,
-		'/usr/local/opt/libpng/lib/',
-		'@rpath/',
-		False)
-	relocator.relocate()
 
 def create_dmg():
 	""" Create a dmg of the app """
@@ -264,7 +237,7 @@ def create_dmg():
 	global DMG_FILE
 	try:
 		DMG_FILE = os.path.join(OUTPUT_FOLDER, DMG_FILE)
-	except NameError as e:
+	except NameError:
 		print("Could not find DMG name. Using app name")
 		DMG_FILE = os.path.join(OUTPUT_FOLDER, APP_NAME + u'.dmg')
 	
@@ -296,16 +269,23 @@ def create_dmg():
 	dmg_config = {
 		'filename': DMG_FILE,
 		'volume_name': APP_NAME,
-		'format': DMG_FORMAT,
 		'size' : APP_SIZE,
 		'files' : [APP_FILE],
 		'symlinks' : { 'Applications': '/Applications' },
-		'badge_icon' : ICON_PATH,
-		'icon_locations' : DMG_ICON_LOCATIONS,
-		'icon_size' : DMG_ICON_SIZE,
-		'background' : DMG_BACKGROUND,
-		'window_rect' : DMG_WINDOW,
 	}
+
+	if ICON_FILE:
+		dmg_config['badge_icon'] = ICON_PATH
+	if "DMG_FORMAT" in globals():
+		dmg_config['format'] = DMG_FORMAT
+	if 'DMG_BACKGROUND' in globals():
+		dmg_config['background'] = os.path.expanduser(DMG_BACKGROUND)
+	if 'DMG_ICON_SIZE' in globals():
+		dmg_config['icon_size'] = DMG_ICON_SIZE
+	if 'DMG_ICON_LOCATIONS' in globals():
+		dmg_config['icon_locations'] = DMG_ICON_LOCATIONS
+	if 'DMG_WINDOW_RECT' in globals():
+		dmg_config['window_rect'] = DMG_WINDOW_RECT
 
 	write_vars_to_file(dmgbuild_config_file, dmg_config)
 	print("Copying files to DMG and compressing it. Please wait.")
