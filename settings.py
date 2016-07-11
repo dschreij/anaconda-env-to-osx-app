@@ -109,10 +109,13 @@ def extra():
 
 def copy_opensesame_with_py_ext():
 	""" Copy bin/opensesame to bin/opensesame.py to enable multiprocessing """
-	shutil.copy(
-		os.path.join(RESOURCE_DIR, 'bin', ENTRY_SCRIPT),
-		os.path.join(RESOURCE_DIR, 'bin', ENTRY_SCRIPT + '.py')
-	)
+	try:
+		shutil.copy(
+			os.path.join(RESOURCE_DIR, 'bin', ENTRY_SCRIPT),
+			os.path.join(RESOURCE_DIR, 'bin', ENTRY_SCRIPT + '.py')
+		)
+	except IOError as e:
+		print("Could not copy opensesame to opensesame.py: {}".format(e))
 
 def copy_libpng():
 	""" Copy newer (Homebrew) libpng to Resources folder, 
