@@ -3,7 +3,7 @@ This script creates Mac OS X apps and dmgs from Anaconda Python environments. An
 The benefit of doing it like this instead of using py2app is:
 
 - The process is much more transparent, basically your app will be a direct copy of the
-Anaconda environment with no things changed, and all othe steps can be followed or changed in the script.
+Anaconda environment with no things changed, and all steps can be followed or changed in the script.
 - The resulting app will not be frozen. This makes it easier to maintain or (auto) update it.
 - Best of all, multiprocessing (in combination with billiard and spawn) will work in Python 2. I didn't get this to happen with billiard+py2app.
 

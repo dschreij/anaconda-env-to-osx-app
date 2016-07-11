@@ -80,15 +80,25 @@ try:
 except NameError: #Python 3
     pass
 
+def get_confirmation(question, default_yes=True):
+	if default_yes:
+		question = question + " ([y]/n): "
+	else:
+		question = question + " (y/[n]): "
+	resp = input(question)
+	while not resp in ['y','n','']:
+		resp = input(question)
+	if (resp == '' and not default_yes) or resp == 'n':
+		return False
+	return True
+
 def create_app():
 	""" Create an app bundle """
 
 	# Check if app already exists and ask user what to do if so.
 	if os.path.exists(APP_FILE):
-		resp = input("App already exists, do you want to overwrite it? ([y]/n): ")
-		while not resp in ['y','n','']:
-			resp = input("App already exists, do you want to overwrite it? ([y]/n): ")
-		if resp == 'n':
+		resp = get_confirmation("App already exists, do you want to overwrite it?")
+		if not resp:
 			print("Skipping app creation")
 			return
 		else:
@@ -211,7 +221,8 @@ def create_plist():
 		'NSAppTransportSecurity': {'NSAllowsArbitraryLoads': True},
 		'NSHumanReadableCopyright': u'\xa9 {} {}'.format(date.today().year, AUTHOR),
 		'NSMainNibFile': 'MainMenu',
-		'NSPrincipalClass': 'NSApplication'
+		'NSPrincipalClass': 'NSApplication',
+		'NSHighResolutionCapable': True,
 	}
 
 	if ICON_FILE:
@@ -242,10 +253,8 @@ def create_dmg():
 		DMG_FILE = os.path.join(OUTPUT_FOLDER, APP_NAME + u'.dmg')
 	
 	if os.path.exists(DMG_FILE):
-		resp = input("DMG already exists, do you want to overwrite it? ([y]/n): ")
-		while not resp in ['y','n','']:
-			resp = input("DMG already exists, do you want to overwrite it? ([y]/n): ")
-		if resp == 'n':
+		resp = get_confirmation("DMG already exists, do you want to overwrite it?")
+		if not resp:
 			print("Skipping DMG creation")
 			return
 		else:
@@ -308,18 +317,15 @@ def write_vars_to_file(file_path, var_dict):
 if __name__ == "__main__":
 	create_app()
 
-	resp = input("Do you want to create a DMG from the app? ([y]/n): ")
-	while not resp in ['y','n','']:
-		resp = input("Do you want to create a DMG from the app? ([y]/n): ")
-	if resp == 'n':
-		print("Skipping dmg creation")
-	else:
+	resp = get_confirmation("Do you want to create a DMG from the app?")
+	if resp:
 		create_dmg()
-
+	else:
+		print("Skipping dmg creation")
+		
 	print("Finished!")
 
 ####### TODO #######
 # Convert entry shell script to binary.
 # Integrate ffmpeg.osx in package somehow.
-# Retrieve OpenSesame version from opensesame source files
 # See what is necessary for code signing
