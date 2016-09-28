@@ -317,7 +317,7 @@ def write_vars_to_file(file_path, var_dict):
 if __name__ == "__main__":
 	create_app()
 
-	resp = get_confirmation("Do you want to create a DMG from the app?")
+	resp = get_confirmation("Do you want to create a disk image (DMG) of the app?")
 	if resp:
 		create_dmg()
 	else:
