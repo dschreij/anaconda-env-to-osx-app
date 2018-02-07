@@ -49,7 +49,6 @@ try:
 	AUTHOR
 	CONDA_ENV_PATH
 	ENTRY_SCRIPT
-	CFBUNDLETYPEROLE
 	IDENTIFIER
 except NameError as e:
 	print("Missing obligatory configuration variable: {}".format(e))
@@ -145,8 +144,8 @@ def create_app_structure():
 			sys.exit(1)
 
 	# Set execution flags
-	st = os.stat(APP_SCRIPT)
-	os.chmod(APP_SCRIPT, st.st_mode | stat.S_IEXEC)
+	current_permissions = stat.S_IMODE(os.lstat(APP_SCRIPT).st_mode)
+	os.chmod(APP_SCRIPT, current_permissions | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 def copy_anaconda_env():
 	""" Copy anaconda environment """
@@ -215,7 +214,6 @@ def create_plist():
 		'CFBundleVersion': LONG_VERSION,
 		'CFBundleShortVersionString': VERSION,
 		'CFBundleSignature': '????',
-		'CFBundleTypeRole': CFBUNDLETYPEROLE,
 		'LSMinimumSystemVersion': '10.7.0',
 		'LSUIElement': False,
 		'NSAppTransportSecurity': {'NSAllowsArbitraryLoads': True},
@@ -230,10 +228,14 @@ def create_plist():
 
 	if 'APP_SUPPORTED_FILES' in globals():
 		global APP_SUPPORTED_FILES
-		info_plist_data['CFBundleDocumentTypes'] = APP_SUPPORTED_FILES
+		info_plist_data['CFBundleDocumentTypes'] = APP_SUPPORTED_FILES['CFBundleDocumentTypes']
+
+		if 'UTExportedTypeDeclarations' in APP_SUPPORTED_FILES:
+			info_plist_data['UTExportedTypeDeclarations'] = \
+				APP_SUPPORTED_FILES['UTExportedTypeDeclarations']
 
 	biplist.writePlist(info_plist_data, os.path.join(APP_FILE, 'Contents',
-	 	'Info.plist'))
+	 	'Info.plist'), binary=False)
 
 
 def create_dmg():
@@ -265,9 +267,10 @@ def create_dmg():
 
 	# Get file size of APP
 	APP_SIZE = subprocess.check_output(['du','-sh', APP_FILE]).split()[0].decode('utf-8')
+	(size, unit) = re.findall('(\d+\.?\d?)(\w)', APP_SIZE)[0] # returns tuple with format ('3.0', 'G')
 
 	# Add a bit of extra to the disk image size
-	APP_SIZE = str(int(re.findall('\d+', APP_SIZE)[0]) + 50) + 'M'
+	APP_SIZE = str(float(size)*1.25) + unit
 
 	print("Creating disk image of {}".format(APP_SIZE))
 

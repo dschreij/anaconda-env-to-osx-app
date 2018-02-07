@@ -35,17 +35,32 @@ ICON_PATH = "~/Github/OpenSesame/opensesame_resources/opensesame.icns"
 ENTRY_SCRIPT = "opensesame"
 # Folder to place created APP and DMG in.
 OUTPUT_FOLDER = "~/EXPERIMENTAL/"
-# Obligatory Info.plist setting, see:
-# https://developer.apple.com/library/ios/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
-# Should be one of {Editor, Viewer, Shell, None}
-CFBUNDLETYPEROLE = "Editor"
 
 # Information about file types that the app can handle
-APP_SUPPORTED_FILES = [{
-	'CFBundleTypeExtensions': ["osexp"],
-	'CFBundleTypeIconFile': os.path.basename(ICON_PATH),
-	'LSItemContentTypes': ["public.item"] 
-}]
+APP_SUPPORTED_FILES = {
+	"CFBundleDocumentTypes":[
+		{
+			'CFBundleTypeName': "OpenSesame experiment",
+			'CFBundleTypeRole': "Editor",
+			'LSHandlerRank': "Owner",
+			'CFBundleTypeIconFile': os.path.basename(ICON_PATH),
+			'LSItemContentTypes': ["nl.cogsci.osdoc.osexp"],
+			'NSExportableTypes': ["nl.cogsci.osdoc.osexp"],
+		}
+	],
+	"UTExportedTypeDeclarations":[
+		{
+			'UTTypeConformsTo': ['org.gnu.gnu-zip-archive'],
+			'UTTypeDescription': "OpenSesame experiment",
+			'UTTypeIdentifier': "nl.cogsci.osdoc.osexp",
+			'UTTypeIconFile': os.path.basename(ICON_PATH),
+			'UTTypeTagSpecification': {
+				'public.filename-extension': 'osexp',
+				'public.mime-type': 'application/gzip'
+			}
+		}
+	]
+}
 
 # ===== Settings specific to dmgbuild =====
 
@@ -103,9 +118,8 @@ else:
 
 def extra():
 	copy_opensesame_with_py_ext()
-	# copy_libpng()
-	copy_sdl_libraries()
-	correct_pygame_links()
+	# copy_sdl_libraries()
+	# correct_pygame_links()
 
 def copy_opensesame_with_py_ext():
 	""" Copy bin/opensesame to bin/opensesame.py to enable multiprocessing """
@@ -167,6 +181,13 @@ def copy_sdl_libraries():
 	relocator = osxrelocator.OSXRelocator(
 		RESOURCE_DIR + '/lib',
 		'/usr/local/opt/sdl/lib/',
+		'@rpath/', False)
+	relocator.relocate()
+
+	# Reference to freetype.6.dylib
+	relocator = osxrelocator.OSXRelocator(
+		RESOURCE_DIR + '/lib',
+		'/usr/local/opt/freetype/lib/',
 		'@rpath/', False)
 	relocator.relocate()
 
