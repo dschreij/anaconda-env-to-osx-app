@@ -23,12 +23,14 @@ CONDA_ENV_PATH = "~/miniconda3/envs/opensesame"
 # Folders to include from Anaconda environment, if ommitted everything will be
 # copied
 # CONDA_FOLDERS = ["lib", "bin", "share", "qsci", "ssl", "translations"]
+
 # Paths of files and folders to remove from the copied anaconda environment,
 # relative to the environment's root.
 # For instance, this could be the qt4 apps (an app inside an app is useless)
 CONDA_EXCLUDE_FILES = [
 	'bin/*.app',
-	'translations'
+	'bin/qmake',
+	'bin/qgltf'
 ]
 # Path to the icon of the app
 ICON_PATH = "~/Git/OpenSesame/opensesame_resources/opensesame.icns"
