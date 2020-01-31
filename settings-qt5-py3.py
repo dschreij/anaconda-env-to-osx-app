@@ -13,13 +13,13 @@ APP_NAME = "OpenSesame"
 # The short version string
 # In this script, this value is overwritten later, because the value of OpenSesame
 # is automatically retrieved from its source code.
-VERSION = "3.2.0"
+VERSION = "3.3.0"
 # The website in reversered order (domain first, etc.)
 IDENTIFIER = "nl.cogsci.osdoc"
 # The author of this package
 AUTHOR = "Sebastiaan Mathôt"
 # Path to the anaconda environment folder to package
-CONDA_ENV_PATH = "~/miniconda3/envs/opensesame-py3"
+CONDA_ENV_PATH = "~/miniconda3/envs/opensesame3.3"
 # Folders to include from Anaconda environment, if ommitted everything will be
 # copied
 # CONDA_FOLDERS = ["lib", "bin", "share", "qsci", "ssl", "translations"]

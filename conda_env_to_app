@@ -103,7 +103,7 @@ def create_app():
 		else:
 			print("Removing previous app")
 			shutil.rmtree(APP_FILE)
-	
+
 	print("\n++++++++++++++++++++++++ Creating APP +++++++++++++++++++++++++++")
 	start_t = time.time()
 
@@ -118,7 +118,7 @@ def create_app():
 	if "extra" in globals() and callable(extra):
 		print("Performing application specific actions.")
 		extra()
-	
+
 	print("============ APP CREATION FINISHED in {} seconds ===================="
 		"".format(int(time.time()-start_t)))
 
@@ -155,7 +155,7 @@ def copy_anaconda_env():
 			# IF conda folders is specified, copy only those folders.
 			for item in CONDA_FOLDERS:
 				shutil.copytree(
-					os.path.join(CONDA_ENV_PATH, item), 
+					os.path.join(CONDA_ENV_PATH, item),
 					os.path.join(RESOURCE_DIR, item),
 					symlinks=True)
 		else:
@@ -253,7 +253,7 @@ def create_dmg():
 	except NameError:
 		print("Could not find DMG name. Using app name")
 		DMG_FILE = os.path.join(OUTPUT_FOLDER, APP_NAME + u'.dmg')
-	
+
 	if os.path.exists(DMG_FILE):
 		resp = get_confirmation("DMG already exists, do you want to overwrite it?")
 		if not resp:
@@ -274,7 +274,7 @@ def create_dmg():
 
 	print("Creating disk image of {}".format(APP_SIZE))
 
-	# Create a dmgbuild config file in same folder as 
+	# Create a dmgbuild config file in same folder as
 	dmgbuild_config_file = os.path.join(os.path.dirname(CONFIG_FILE_PATH),
 		'dmgbuild_settings.py')
 
@@ -310,8 +310,8 @@ def write_vars_to_file(file_path, var_dict):
 	with open(file_path, 'w') as fp:
 		fp.write("# -*- coding: utf-8 -*-\n")
 		fp.write("from __future__ import unicode_literals\n\n")
-		
-		for var, value in var_dict.iteritems():
+
+		for var, value in var_dict.items():
 			if isinstance(value, six.string_types):
 				fp.write('{} = "{}"\n'.format(var, value))
 			else:
@@ -325,7 +325,7 @@ if __name__ == "__main__":
 		create_dmg()
 	else:
 		print("Skipping dmg creation")
-		
+
 	print("Finished!")
 
 ####### TODO #######
