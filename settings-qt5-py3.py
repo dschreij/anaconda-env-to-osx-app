@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
-import osxrelocator
 import os
 import re
+import shutil
 
 #===============================================================================
 # General settings applicable to all apps
@@ -19,7 +19,7 @@ IDENTIFIER = "nl.cogsci.osdoc"
 # The author of this package
 AUTHOR = "Sebastiaan Mathôt"
 # Path to the anaconda environment folder to package
-CONDA_ENV_PATH = "~/miniconda3/envs/opensesame3.3"
+CONDA_ENV_PATH = "~/miniconda3/envs/os3.3"
 # Folders to include from Anaconda environment, if ommitted everything will be
 # copied
 # CONDA_FOLDERS = ["lib", "bin", "share", "qsci", "ssl", "translations"]
