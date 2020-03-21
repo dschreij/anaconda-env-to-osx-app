@@ -18,47 +18,47 @@ from datetime import date
 
 # Check for settings file
 if len(sys.argv) != 2:
-	print('Supply a settings.py file for app creation')
-	sys.exit(1)
+    print('Supply a settings.py file for app creation')
+    sys.exit(1)
 
 CONFIG_FILE_PATH = sys.argv[1]
 
 # Read config file for app creation
 # On Python 2 we can just execfile() it, but Python 3 deprecated that
 try:
-	if sys.version_info[0] == 2:
-	    execfile(CONFIG_FILE_PATH)
-	else:
-		encoding = 'utf-8'
-		with open(CONFIG_FILE_PATH, 'rb') as fp:
-			try:
-				encoding = tokenize.detect_encoding(fp.readline)[0]
-			except SyntaxError:
-				pass
-		with open(CONFIG_FILE_PATH, 'r', encoding=encoding) as fp:
-			exec(compile(fp.read(), CONFIG_FILE_PATH, 'exec'))
+    if sys.version_info[0] == 2:
+        execfile(CONFIG_FILE_PATH)
+    else:
+        encoding = 'utf-8'
+        with open(CONFIG_FILE_PATH, 'rb') as fp:
+            try:
+                encoding = tokenize.detect_encoding(fp.readline)[0]
+            except SyntaxError:
+                pass
+        with open(CONFIG_FILE_PATH, 'r', encoding=encoding) as fp:
+            exec(compile(fp.read(), CONFIG_FILE_PATH, 'exec'))
 except IOError as e:
-	print("Could not read app config file: {}".format(e))
-	sys.exit(1)
+    print("Could not read app config file: {}".format(e))
+    sys.exit(1)
 
 # Check if obligatory variables are present in the configuration file.
 try:
-	APP_NAME
-	OUTPUT_FOLDER
-	VERSION
-	AUTHOR
-	CONDA_ENV_PATH
-	ENTRY_SCRIPT
-	IDENTIFIER
+    APP_NAME
+    OUTPUT_FOLDER
+    VERSION
+    AUTHOR
+    CONDA_ENV_PATH
+    ENTRY_SCRIPT
+    IDENTIFIER
 except NameError as e:
-	print("Missing obligatory configuration variable: {}".format(e))
+    print("Missing obligatory configuration variable: {}".format(e))
 
 # Optional config entries
 try:
-	ICON_PATH = os.path.expanduser(ICON_PATH)
-	ICON_FILE = os.path.basename(ICON_PATH)
+    ICON_PATH = os.path.expanduser(ICON_PATH)
+    ICON_FILE = os.path.basename(ICON_PATH)
 except NameError:
-	ICON_FILE = None
+    ICON_FILE = None
 
 # Account for relative paths to home folder
 CONDA_ENV_PATH = os.path.expanduser(CONDA_ENV_PATH)
@@ -76,257 +76,272 @@ APP_SCRIPT = os.path.join(MACOS_DIR, APP_NAME)
 # map raw_input to input in Python 2 (raw_input no longer exists in 3)
 try:
     input = raw_input
-except NameError: #Python 3
+except NameError:  # Python 3
     pass
 
+
 def get_confirmation(question, default_yes=True):
-	if default_yes:
-		question = question + " ([y]/n): "
-	else:
-		question = question + " (y/[n]): "
-	resp = input(question)
-	while not resp in ['y','n','']:
-		resp = input(question)
-	if (resp == '' and not default_yes) or resp == 'n':
-		return False
-	return True
+    if default_yes:
+        question = question + " ([y]/n): "
+    else:
+        question = question + " (y/[n]): "
+    resp = input(question)
+    while not resp in ['y', 'n', '']:
+        resp = input(question)
+    if (resp == '' and not default_yes) or resp == 'n':
+        return False
+    return True
+
 
 def create_app():
-	""" Create an app bundle """
+    """ Create an app bundle """
 
-	# Check if app already exists and ask user what to do if so.
-	if os.path.exists(APP_FILE):
-		resp = get_confirmation("App already exists, do you want to overwrite it?")
-		if not resp:
-			print("Skipping app creation")
-			return
-		else:
-			print("Removing previous app")
-			shutil.rmtree(APP_FILE)
+    # Check if app already exists and ask user what to do if so.
+    if os.path.exists(APP_FILE):
+        resp = get_confirmation(
+            "App already exists, do you want to overwrite it?")
+        if not resp:
+            print("Skipping app creation")
+            return
+        else:
+            print("Removing previous app")
+            shutil.rmtree(APP_FILE)
 
-	print("\n++++++++++++++++++++++++ Creating APP +++++++++++++++++++++++++++")
-	start_t = time.time()
+    print("\n++++++++++++++++++++++++ Creating APP +++++++++++++++++++++++++++")
+    start_t = time.time()
 
-	create_app_structure()
-	copy_anaconda_env()
-	if ICON_FILE:
-		copy_icon()
-	create_plist()
+    create_app_structure()
+    copy_anaconda_env()
+    if ICON_FILE:
+        copy_icon()
+    create_plist()
 
-	# Do some package specific stuff, which is defined in the extra() function
-	# in settings.py (and was imported at the top of this module)
-	if "extra" in globals() and callable(extra):
-		print("Performing application specific actions.")
-		extra()
+    # Do some package specific stuff, which is defined in the extra() function
+    # in settings.py (and was imported at the top of this module)
+    if "extra" in globals() and callable(extra):
+        print("Performing application specific actions.")
+        extra()
 
-	print("============ APP CREATION FINISHED in {} seconds ===================="
-		"".format(int(time.time()-start_t)))
+    print("============ APP CREATION FINISHED in {} seconds ===================="
+          "".format(int(time.time()-start_t)))
+
 
 def create_app_structure():
-	""" Create folder structure comprising a Mac app """
-	print("Creating app structure")
-	try:
-		os.makedirs(MACOS_DIR)
-	except OSError as e:
-		print('Could not create app structure: {}'.format(e))
-		sys.exit(1)
+    """ Create folder structure comprising a Mac app """
+    print("Creating app structure")
+    try:
+        os.makedirs(MACOS_DIR)
+    except OSError as e:
+        print('Could not create app structure: {}'.format(e))
+        sys.exit(1)
 
-	print("Creating app entry script")
-	with open(APP_SCRIPT, 'w') as fp:
-		# Write the contents
-		try:
-			fp.write("#!/usr/bin/env bash\n"
-					 "script_dir=$(dirname \"$(dirname \"$0\")\")\n"
-					 "$script_dir/Resources/bin/python "
-					 "$script_dir/Resources/bin/{} $@".format(ENTRY_SCRIPT))
-		except IOError as e:
-			print("Could not create Contents/OpenSesame script")
-			sys.exit(1)
+    print("Creating app entry script")
+    with open(APP_SCRIPT, 'w') as fp:
+        # Write the contents
+        try:
+            fp.write("#!/usr/bin/env bash\n"
+                     "script_dir=$(dirname \"$(dirname \"$0\")\")\n"
+                     "$script_dir/Resources/bin/python "
+                     "$script_dir/Resources/bin/{} $@".format(ENTRY_SCRIPT))
+        except IOError as e:
+            print("Could not create Contents/OpenSesame script")
+            sys.exit(1)
 
-	# Set execution flags
-	current_permissions = stat.S_IMODE(os.lstat(APP_SCRIPT).st_mode)
-	os.chmod(APP_SCRIPT, current_permissions | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    # Set execution flags
+    current_permissions = stat.S_IMODE(os.lstat(APP_SCRIPT).st_mode)
+    os.chmod(APP_SCRIPT, current_permissions |
+             stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
 
 def copy_anaconda_env():
-	""" Copy anaconda environment """
-	print("Copying Anaconda environment (this may take a while)")
-	try:
-		if "CONDA_FOLDERS" in globals():
-			# IF conda folders is specified, copy only those folders.
-			for item in CONDA_FOLDERS:
-				shutil.copytree(
-					os.path.join(CONDA_ENV_PATH, item),
-					os.path.join(RESOURCE_DIR, item),
-					symlinks=True)
-		else:
-			# Copy everything
-			shutil.copytree(CONDA_ENV_PATH, RESOURCE_DIR, True)
-	except OSError as e:
-		print("Error copying Anaconda environment: {}".format(e))
+    """ Copy anaconda environment """
+    print("Copying Anaconda environment (this may take a while)")
+    try:
+        if "CONDA_FOLDERS" in globals():
+            # IF conda folders is specified, copy only those folders.
+            for item in CONDA_FOLDERS:
+                shutil.copytree(
+                    os.path.join(CONDA_ENV_PATH, item),
+                    os.path.join(RESOURCE_DIR, item),
+                    symlinks=True)
+        else:
+            # Copy everything
+            shutil.copytree(CONDA_ENV_PATH, RESOURCE_DIR, True)
+    except OSError as e:
+        print("Error copying Anaconda environment: {}".format(e))
+        sys.exit(1)
 
-	# Delete unncecessary files (such as all Qt apps included with conda)
-	if "CONDA_EXCLUDE_FILES" in globals():
-		for excl_entry in CONDA_EXCLUDE_FILES:
-			full_path = os.path.join(RESOURCE_DIR, excl_entry)
-			# Expand wild cards and such
-			filelist = glob.glob(full_path)
-			for item in filelist:
-				try:
-					if os.path.isdir(item):
-						print("Removing folder: {}".format(item))
-						shutil.rmtree(item)
-					elif os.path.isfile(item):
-						print("Removing file: {}".format(item))
-						os.remove(item)
-					else:
-						print("File not found: {}".format(item))
-				except (IOError, OSError) as e:
-					print("WARNING: could not delete {}".format(item))
+    # Delete unncecessary files (such as all Qt apps included with conda)
+    if "CONDA_EXCLUDE_FILES" in globals():
+        for excl_entry in CONDA_EXCLUDE_FILES:
+            full_path = os.path.join(RESOURCE_DIR, excl_entry)
+            # Expand wild cards and such
+            filelist = glob.glob(full_path)
+            for item in filelist:
+                try:
+                    if os.path.isdir(item):
+                        print("Removing folder: {}".format(item))
+                        shutil.rmtree(item)
+                    elif os.path.isfile(item):
+                        print("Removing file: {}".format(item))
+                        os.remove(item)
+                    else:
+                        print("File not found: {}".format(item))
+                except (IOError, OSError) as e:
+                    print("WARNING: could not delete {}".format(item))
+
 
 def copy_icon():
-	""" Copy icon to Resources folder """
-	global ICON_PATH
-	print("Copying icon file")
-	try:
-		shutil.copy(ICON_PATH, os.path.join(RESOURCE_DIR, ICON_FILE))
-	except OSError as e:
-		print("Error copying icon file from {}: {}".format(ICON_PATH, e))
+    """ Copy icon to Resources folder """
+    global ICON_PATH
+    print("Copying icon file")
+    try:
+        shutil.copy(ICON_PATH, os.path.join(RESOURCE_DIR, ICON_FILE))
+    except OSError as e:
+        print("Error copying icon file from {}: {}".format(ICON_PATH, e))
+
 
 def create_plist():
-	print("Creating Info.plist")
+    print("Creating Info.plist")
 
-	global ICON_FILE
-	global VERSION
+    global ICON_FILE
+    global VERSION
 
-	if 'LONG_VERSION' in globals():
-		global LONG_VERSION
-	else:
-		LONG_VERSION = VERSION
+    if 'LONG_VERSION' in globals():
+        global LONG_VERSION
+    else:
+        LONG_VERSION = VERSION
 
-	info_plist_data = {
-		'CFBundleDevelopmentRegion': 'en',
-		'CFBundleExecutable': APP_NAME,
-		'CFBundleIdentifier': IDENTIFIER,
-		'CFBundleInfoDictionaryVersion': '6.0',
-		'CFBundleName': APP_NAME,
-		'CFBundleDisplayName': APP_NAME,
-		'CFBundlePackageType': 'APPL',
-		'CFBundleVersion': LONG_VERSION,
-		'CFBundleShortVersionString': VERSION,
-		'CFBundleSignature': '????',
-		'LSMinimumSystemVersion': '10.7.0',
-		'LSUIElement': False,
-		'NSAppTransportSecurity': {'NSAllowsArbitraryLoads': True},
-		'NSHumanReadableCopyright': u'\xa9 {} {}'.format(date.today().year, AUTHOR),
-		'NSMainNibFile': 'MainMenu',
-		'NSPrincipalClass': 'NSApplication',
-		'NSHighResolutionCapable': True,
-	}
+    info_plist_data = {
+        'CFBundleDevelopmentRegion': 'en',
+        'CFBundleExecutable': APP_NAME,
+        'CFBundleIdentifier': IDENTIFIER,
+        'CFBundleInfoDictionaryVersion': '6.0',
+        'CFBundleName': APP_NAME,
+        'CFBundleDisplayName': APP_NAME,
+        'CFBundlePackageType': 'APPL',
+        'CFBundleVersion': LONG_VERSION,
+        'CFBundleShortVersionString': VERSION,
+        'CFBundleSignature': '????',
+        'LSMinimumSystemVersion': '10.7.0',
+        'LSUIElement': False,
+        'NSAppTransportSecurity': {'NSAllowsArbitraryLoads': True},
+        'NSHumanReadableCopyright': u'\xa9 {} {}'.format(date.today().year, AUTHOR),
+        'NSMainNibFile': 'MainMenu',
+        'NSPrincipalClass': 'NSApplication',
+        'NSHighResolutionCapable': True,
+    }
 
-	if ICON_FILE:
-		info_plist_data['CFBundleIconFile'] = ICON_FILE
+    if ICON_FILE:
+        info_plist_data['CFBundleIconFile'] = ICON_FILE
 
-	if 'APP_SUPPORTED_FILES' in globals():
-		global APP_SUPPORTED_FILES
-		info_plist_data['CFBundleDocumentTypes'] = APP_SUPPORTED_FILES['CFBundleDocumentTypes']
+    if 'APP_SUPPORTED_FILES' in globals():
+        global APP_SUPPORTED_FILES
+        info_plist_data['CFBundleDocumentTypes'] = APP_SUPPORTED_FILES['CFBundleDocumentTypes']
 
-		if 'UTExportedTypeDeclarations' in APP_SUPPORTED_FILES:
-			info_plist_data['UTExportedTypeDeclarations'] = \
-				APP_SUPPORTED_FILES['UTExportedTypeDeclarations']
+        if 'UTExportedTypeDeclarations' in APP_SUPPORTED_FILES:
+            info_plist_data['UTExportedTypeDeclarations'] = \
+                APP_SUPPORTED_FILES['UTExportedTypeDeclarations']
 
-	biplist.writePlist(info_plist_data, os.path.join(APP_FILE, 'Contents',
-	 	'Info.plist'), binary=False)
+    biplist.writePlist(info_plist_data, os.path.join(APP_FILE, 'Contents',
+                                                     'Info.plist'), binary=False)
 
 
 def create_dmg():
-	""" Create a dmg of the app """
+    """ Create a dmg of the app """
 
-	# Check if app to exists
-	if not os.path.isdir(APP_FILE):
-		print("Could not file app file at {}".format(APP_FILE))
-		sys.exit(1)
+    # Check if app to exists
+    if not os.path.isdir(APP_FILE):
+        print("Could not file app file at {}".format(APP_FILE))
+        sys.exit(1)
 
-	# Check if DMG already exists and ask user what to do if so.
-	global DMG_FILE
-	try:
-		DMG_FILE = os.path.join(OUTPUT_FOLDER, DMG_FILE)
-	except NameError:
-		print("Could not find DMG name. Using app name")
-		DMG_FILE = os.path.join(OUTPUT_FOLDER, APP_NAME + u'.dmg')
+    # Check if DMG already exists and ask user what to do if so.
+    global DMG_FILE
+    try:
+        DMG_FILE = os.path.join(OUTPUT_FOLDER, DMG_FILE)
+    except NameError:
+        print("Could not find DMG name. Using app name")
+        DMG_FILE = os.path.join(OUTPUT_FOLDER, APP_NAME + u'.dmg')
 
-	if os.path.exists(DMG_FILE):
-		resp = get_confirmation("DMG already exists, do you want to overwrite it?")
-		if not resp:
-			print("Skipping DMG creation")
-			return
-		else:
-			print("Removing previous DMG")
-			os.remove(DMG_FILE)
+    if os.path.exists(DMG_FILE):
+        resp = get_confirmation(
+            "DMG already exists, do you want to overwrite it?")
+        if not resp:
+            print("Skipping DMG creation")
+            return
+        else:
+            print("Removing previous DMG")
+            os.remove(DMG_FILE)
 
-	print("\n+++++++++++++++++++++ Creating DMG from app +++++++++++++++++++++++")
+    print("\n+++++++++++++++++++++ Creating DMG from app +++++++++++++++++++++++")
 
-	# Get file size of APP
-	APP_SIZE = subprocess.check_output(['du','-sh', APP_FILE]).split()[0].decode('utf-8')
-	(size, unit) = re.findall('(\d+\.?\d?)(\w)', APP_SIZE)[0] # returns tuple with format ('3.0', 'G')
+    # Get file size of APP
+    APP_SIZE = subprocess.check_output(
+        ['du', '-sh', APP_FILE]).split()[0].decode('utf-8')
+    # returns tuple with format ('3.0', 'G')
+    (size, unit) = re.findall('(\d+\.?\d?)(\w)', APP_SIZE)[0]
 
-	# Add a bit of extra to the disk image size
-	APP_SIZE = str(float(size)*1.25) + unit
+    # Add a bit of extra to the disk image size
+    APP_SIZE = str(float(size)*1.25) + unit
 
-	print("Creating disk image of {}".format(APP_SIZE))
+    print("Creating disk image of {}".format(APP_SIZE))
 
-	# Create a dmgbuild config file in same folder as
-	dmgbuild_config_file = os.path.join(os.path.dirname(CONFIG_FILE_PATH),
-		'dmgbuild_settings.py')
+    # Create a dmgbuild config file in same folder as
+    dmgbuild_config_file = os.path.join(os.path.dirname(CONFIG_FILE_PATH),
+                                        'dmgbuild_settings.py')
 
-	dmg_config = {
-		'filename': DMG_FILE,
-		'volume_name': APP_NAME,
-		'size' : APP_SIZE,
-		'files' : [APP_FILE],
-		'symlinks' : { 'Applications': '/Applications' },
-	}
+    dmg_config = {
+        'filename': DMG_FILE,
+        'volume_name': APP_NAME,
+        'size': APP_SIZE,
+        'files': [APP_FILE],
+        'symlinks': {'Applications': '/Applications'},
+    }
 
-	if ICON_FILE:
-		dmg_config['badge_icon'] = ICON_PATH
-	if "DMG_FORMAT" in globals():
-		dmg_config['format'] = DMG_FORMAT
-	if 'DMG_BACKGROUND' in globals():
-		dmg_config['background'] = os.path.expanduser(DMG_BACKGROUND)
-	if 'DMG_ICON_SIZE' in globals():
-		dmg_config['icon_size'] = DMG_ICON_SIZE
-	if 'DMG_ICON_LOCATIONS' in globals():
-		dmg_config['icon_locations'] = DMG_ICON_LOCATIONS
-	if 'DMG_WINDOW_RECT' in globals():
-		dmg_config['window_rect'] = DMG_WINDOW_RECT
+    if ICON_FILE:
+        dmg_config['badge_icon'] = ICON_PATH
+    if "DMG_FORMAT" in globals():
+        dmg_config['format'] = DMG_FORMAT
+    if 'DMG_BACKGROUND' in globals():
+        dmg_config['background'] = os.path.expanduser(DMG_BACKGROUND)
+    if 'DMG_ICON_SIZE' in globals():
+        dmg_config['icon_size'] = DMG_ICON_SIZE
+    if 'DMG_ICON_LOCATIONS' in globals():
+        dmg_config['icon_locations'] = DMG_ICON_LOCATIONS
+    if 'DMG_WINDOW_RECT' in globals():
+        dmg_config['window_rect'] = DMG_WINDOW_RECT
 
-	write_vars_to_file(dmgbuild_config_file, dmg_config)
-	print("Copying files to DMG and compressing it. Please wait.")
-	dmgbuild.build_dmg(DMG_FILE, APP_NAME, settings_file=dmgbuild_config_file)
+    write_vars_to_file(dmgbuild_config_file, dmg_config)
+    print("Copying files to DMG and compressing it. Please wait.")
+    dmgbuild.build_dmg(DMG_FILE, APP_NAME, settings_file=dmgbuild_config_file)
 
-	# Clean up!
-	os.remove(dmgbuild_config_file)
+    # Clean up!
+    os.remove(dmgbuild_config_file)
+
 
 def write_vars_to_file(file_path, var_dict):
-	with open(file_path, 'w') as fp:
-		fp.write("# -*- coding: utf-8 -*-\n")
-		fp.write("from __future__ import unicode_literals\n\n")
+    with open(file_path, 'w') as fp:
+        fp.write("# -*- coding: utf-8 -*-\n")
+        fp.write("from __future__ import unicode_literals\n\n")
 
-		for var, value in var_dict.items():
-			if isinstance(value, six.string_types):
-				fp.write('{} = "{}"\n'.format(var, value))
-			else:
-				fp.write('{} = {}\n'.format(var, value))
+        for var, value in var_dict.items():
+            if isinstance(value, six.string_types):
+                fp.write('{} = "{}"\n'.format(var, value))
+            else:
+                fp.write('{} = {}\n'.format(var, value))
+
 
 if __name__ == "__main__":
-	create_app()
+    create_app()
 
-	resp = get_confirmation("Do you want to create a disk image (DMG) of the app?")
-	if resp:
-		create_dmg()
-	else:
-		print("Skipping dmg creation")
+    resp = get_confirmation(
+        "Do you want to create a disk image (DMG) of the app?")
+    if resp:
+        create_dmg()
+    else:
+        print("Skipping dmg creation")
 
-	print("Finished!")
+    print("Finished!")
 
 ####### TODO #######
 # Convert entry shell script to binary.
