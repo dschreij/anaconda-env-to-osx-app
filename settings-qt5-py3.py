@@ -20,7 +20,7 @@ IDENTIFIER = "nl.cogsci.osdoc"
 # The author of this package
 AUTHOR = "Sebastiaan Mathôt"
 # Path to the anaconda environment folder to package
-CONDA_ENV_PATH = "~/miniconda3/envs/os3.3_2"
+CONDA_ENV_PATH = "~/miniconda3/envs/os3.3"
 # Folders to include from Anaconda environment, if ommitted everything will be
 # copied
 # CONDA_FOLDERS = ["lib", "bin", "share", "qsci", "ssl", "translations"]
@@ -28,8 +28,19 @@ CONDA_ENV_PATH = "~/miniconda3/envs/os3.3_2"
 # relative to the environment's root.
 # For instance, this could be the qt4 apps (an app inside an app is useless)
 CONDA_EXCLUDE_FILES = [
-    'bin/*.app'
+    'bin/*.app',
+    'bin/qmake',
+    'bin/2to3*',
+    'bin/autopoint',
+    'org.freedesktop.dbus-session.plist'
 ]
+
+CONDA_EXCLUDE_FILES += map(lambda x: f'translations/{x}', [
+    'assistant*', 'designer*', 'linguist*', 'qt_*', 'qtbase*', 'qtconnectivity*', 'qtdeclarative*',
+    'qtlocation*', 'qtmultimedia*', 'qtquickcontrols*', 'qtscript*', 'qtserialport*',
+    'qtwebsockets*', 'qtxmlpatterns*'
+])
+
 # Path to the icon of the app
 ICON_PATH = "~/Git/OpenSesame/opensesame_resources/opensesame.icns"
 # The entry script of the application in the environment's bin folder
@@ -68,7 +79,7 @@ RESOURCE_DIR = ""
 
 # Create a DMG template name, so version can be overwritten if it can be
 # determined from the OS libraries.
-os_dmg_template = 'opensesame_{}-macos-1.dmg'
+os_dmg_template = 'opensesame_{}-macos-py37-1.dmg'
 
 # Name of the DMG file that will be created in OUTPUT_FOLDER
 DMG_FILE = os_dmg_template.format(VERSION)
