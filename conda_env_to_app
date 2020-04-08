@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-from __future__ import unicode_literals
-
 import sys
 import stat
 import os
 import glob
 import tokenize
 import shutil
+import fileinput
 import biplist
 import dmgbuild
 import time
 import subprocess
 import six
 import re
+import magic
+import sys
+import logging
 from datetime import date
 
 # Check for settings file
@@ -23,22 +25,22 @@ if len(sys.argv) != 2:
 
 CONFIG_FILE_PATH = sys.argv[1]
 
+logging.basicConfig(stream=sys.stdout, level=logging.WARNING)
+logger = logging.getLogger()
+
 # Read config file for app creation
 # On Python 2 we can just execfile() it, but Python 3 deprecated that
 try:
-    if sys.version_info[0] == 2:
-        execfile(CONFIG_FILE_PATH)
-    else:
-        encoding = 'utf-8'
-        with open(CONFIG_FILE_PATH, 'rb') as fp:
-            try:
-                encoding = tokenize.detect_encoding(fp.readline)[0]
-            except SyntaxError:
-                pass
-        with open(CONFIG_FILE_PATH, 'r', encoding=encoding) as fp:
-            exec(compile(fp.read(), CONFIG_FILE_PATH, 'exec'))
+    encoding = 'utf-8'
+    with open(CONFIG_FILE_PATH, 'rb') as fp:
+        try:
+            encoding = tokenize.detect_encoding(fp.readline)[0]
+        except SyntaxError:
+            pass
+    with open(CONFIG_FILE_PATH, 'r', encoding=encoding) as fp:
+        exec(compile(fp.read(), CONFIG_FILE_PATH, 'exec'))
 except IOError as e:
-    print("Could not read app config file: {}".format(e))
+    logger.error("Could not read app config file: {}".format(e))
     sys.exit(1)
 
 # Check if obligatory variables are present in the configuration file.
@@ -51,7 +53,7 @@ try:
     ENTRY_SCRIPT
     IDENTIFIER
 except NameError as e:
-    print("Missing obligatory configuration variable: {}".format(e))
+    logger.error("Missing obligatory configuration variable: {}".format(e))
 
 # Optional config entries
 try:
@@ -73,13 +75,6 @@ RESOURCE_DIR = os.path.join(APP_FILE, u'Contents/Resources')
 # Execution script in app
 APP_SCRIPT = os.path.join(MACOS_DIR, APP_NAME)
 
-# map raw_input to input in Python 2 (raw_input no longer exists in 3)
-try:
-    input = raw_input
-except NameError:  # Python 3
-    pass
-
-
 def get_confirmation(question, default_yes=True):
     if default_yes:
         question = question + " ([y]/n): "
@@ -92,6 +87,61 @@ def get_confirmation(question, default_yes=True):
         return False
     return True
 
+def find_and_replace(path, search, replace, exclusions=None):
+    if not type(exclusions) in ['list', 'tuple']:
+        exclusions = []
+
+    exclusionValid = False
+    for root, _, files in os.walk(path):
+        for entry in exclusions:
+            if entry in root:
+                exclusionValid = True
+                break
+        if exclusionValid:
+            continue
+        # Do not traverse into python site-packages folders
+        logger.debug('Scanning {}'.format(root))
+        candidates = []
+        for f in files:
+            fullPath = os.path.join(root, f)
+
+            try:
+                filetype = magic.from_file(fullPath)
+            except UnicodeDecodeError:
+                logger.warning(f'Unable to infer type of {fullPath}')
+                continue
+
+            if filetype == 'empty':
+                continue
+
+            if re.search(r'\stext(?:\s+executable)?', filetype):
+                candidates.append(fullPath)
+
+        if len(candidates) == 0:
+            continue
+
+        logger.debug(list(map(os.path.basename, candidates)))
+
+        with fileinput.input(candidates, inplace=True) as stream:
+            finished = False
+            while not finished:
+                try:
+                    for line in stream:
+                        print(line.replace(search, replace), end='')
+                    finished = True
+                except Exception as e:
+                    logger.warning(f'Unable to process: {stream.filename()} - {e}')
+                    stream.nextfile()
+
+def replace_conda_abs_paths():
+    app_path = os.path.join(os.path.sep, 'Applications', APP_NAME + '.app', 'Contents', 'Resources')
+    print('Replacing occurences of {} with {}'.format(CONDA_ENV_PATH, app_path))
+    find_and_replace(
+        RESOURCE_DIR,
+        CONDA_ENV_PATH,
+        app_path,
+        exclusions=['site-packages', 'doc', 'opensesame_resources']
+    )
 
 def create_app():
     """ Create an app bundle """
@@ -122,6 +172,8 @@ def create_app():
         print("Performing application specific actions.")
         extra()
 
+    replace_conda_abs_paths()
+
     print("============ APP CREATION FINISHED in {} seconds ===================="
           "".format(int(time.time()-start_t)))
 
@@ -144,7 +196,7 @@ def create_app_structure():
                      "$script_dir/Resources/bin/python "
                      "$script_dir/Resources/bin/{} $@".format(ENTRY_SCRIPT))
         except IOError as e:
-            print("Could not create Contents/OpenSesame script")
+            logger.exception("Could not create Contents/OpenSesame script")
             sys.exit(1)
 
     # Set execution flags
@@ -168,7 +220,7 @@ def copy_anaconda_env():
             # Copy everything
             shutil.copytree(CONDA_ENV_PATH, RESOURCE_DIR, True)
     except OSError as e:
-        print("Error copying Anaconda environment: {}".format(e))
+        logger.error("Error copying Anaconda environment: {}".format(e))
         sys.exit(1)
 
     # Delete unncecessary files (such as all Qt apps included with conda)
@@ -180,15 +232,15 @@ def copy_anaconda_env():
             for item in filelist:
                 try:
                     if os.path.isdir(item):
-                        print("Removing folder: {}".format(item))
+                        logger.debug("Removing folder: {}".format(item))
                         shutil.rmtree(item)
                     elif os.path.isfile(item):
-                        print("Removing file: {}".format(item))
+                        logger.debug("Removing file: {}".format(item))
                         os.remove(item)
                     else:
-                        print("File not found: {}".format(item))
+                        logger.warning("File not found: {}".format(item))
                 except (IOError, OSError) as e:
-                    print("WARNING: could not delete {}".format(item))
+                    logger.error("WARNING: could not delete {}".format(item))
 
 
 def copy_icon():
@@ -198,7 +250,7 @@ def copy_icon():
     try:
         shutil.copy(ICON_PATH, os.path.join(RESOURCE_DIR, ICON_FILE))
     except OSError as e:
-        print("Error copying icon file from {}: {}".format(ICON_PATH, e))
+        logger("Error copying icon file from {}: {}".format(ICON_PATH))
 
 
 def create_plist():
@@ -252,7 +304,7 @@ def create_dmg():
 
     # Check if app to exists
     if not os.path.isdir(APP_FILE):
-        print("Could not file app file at {}".format(APP_FILE))
+        logger.error("Could not find app file at {}".format(APP_FILE))
         sys.exit(1)
 
     # Check if DMG already exists and ask user what to do if so.
@@ -260,7 +312,7 @@ def create_dmg():
     try:
         DMG_FILE = os.path.join(OUTPUT_FOLDER, DMG_FILE)
     except NameError:
-        print("Could not find DMG name. Using app name")
+        logger.warning("Could not find DMG name. Using app name")
         DMG_FILE = os.path.join(OUTPUT_FOLDER, APP_NAME + u'.dmg')
 
     if os.path.exists(DMG_FILE):
@@ -334,9 +386,8 @@ def write_vars_to_file(file_path, var_dict):
 if __name__ == "__main__":
     create_app()
 
-    resp = get_confirmation(
-        "Do you want to create a disk image (DMG) of the app?")
-    if resp:
+    if get_confirmation(
+        "Do you want to create a disk image (DMG) of the app?"):
         create_dmg()
     else:
         print("Skipping dmg creation")
