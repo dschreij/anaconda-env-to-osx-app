@@ -108,7 +108,7 @@ def find_and_replace(path, search, replace, exclusions=None):
             try:
                 filetype = magic.from_file(fullPath)
             except UnicodeDecodeError:
-                logger.warning(f'Unable to infer type of {fullPath}')
+                logger.error(f'Unable to infer type of {fullPath}')
                 continue
 
             if filetype == 'empty':
@@ -130,7 +130,7 @@ def find_and_replace(path, search, replace, exclusions=None):
                         print(line.replace(search, replace), end='')
                     finished = True
                 except Exception as e:
-                    logger.warning(f'Unable to process: {stream.filename()} - {e}')
+                    logger.error(f'Unable to process: {stream.filename()} - {e}')
                     stream.nextfile()
 
 def replace_conda_abs_paths():
