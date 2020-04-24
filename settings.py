@@ -86,16 +86,16 @@ RESOURCE_DIR = ""
 
 # Create a DMG template name, so version can be overwritten if it can be
 # determined from the OS libraries.
-os_dmg_template = 'opensesame_{}-macos-py37-1.dmg'
+os_dmg_template = 'opensesame_{}-py37-macos-1.dmg'
 
 # Name of the DMG file that will be created in OUTPUT_FOLDER
 DMG_FILE = os_dmg_template.format(VERSION)
 # DMG format
-DMG_FORMAT = 'UDBZ'
+DMG_FORMAT = 'UDZO'
 # Locations of shortcuts in DMG window
 DMG_ICON_LOCATIONS = {
-    APP_NAME + '.app': (30, 450),
-    'Applications': (300, 450)
+    APP_NAME + '.app': (5, 452),
+    'Applications': (200, 450)
 }
 # Size of DMG window when mounted
 DMG_WINDOW_RECT = ((300, 200), (358, 570))
