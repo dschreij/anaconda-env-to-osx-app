@@ -282,6 +282,7 @@ def create_plist():
         'NSMainNibFile': 'MainMenu',
         'NSPrincipalClass': 'NSApplication',
         'NSHighResolutionCapable': True,
+        'NSSupportsAutomaticGraphicsSwitching': True
     }
 
     if ICON_FILE:
